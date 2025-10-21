@@ -56,7 +56,7 @@ export function formatRoomTimeline(room, events, dateYmd) {
 }
 if (cursor.isBefore(dayEnd)) blocks.push({ type: 'FREE', start: cursor, end: dayEnd });
 
-const lines = blocks.map(b => `${b.start.format('HH:mm')}-${b.end.format('HH:mm')} ${b.type==='FREE'?'可借':'已遭預訂'}`);
+const lines = blocks.map(b => `${b.start.format('HH:mm')}-${b.end.format('HH:mm')} ${b.type==='FREE'?'可借':'已被預訂'}`);
 return `【${room}】\n` + lines.join('\n');
 }
 

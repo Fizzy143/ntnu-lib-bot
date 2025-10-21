@@ -1,32 +1,21 @@
+// checkAvailability.js
+// 匯入 status_cli 的邏輯
+
 import 'dotenv/config';
 import axios from 'axios';
 import dayjs from 'dayjs';
-import { normalizeSchedulerPayload, filterByDate, groupByRoom, formatRoomTimeline } from './utils.js';
+import { normalizeSchedulerPayload, filterByDate, groupByRoom, formatRoomTimeline } from '../cli/utils.js';
 
 const BASE = process.env.LIB_BASE || 'https://www.lib.ntnu.edu.tw/service';
 
-function parseArgs() {
-  const args = process.argv.slice(2);
-  const get = (k, def='') => {
-    const i = args.findIndex(a => a===`--${k}` || a===`-${k[0]}`);
-    if (i>=0) return args[i+1] ?? def;
-    return def;
-  };
-  const date = get('date') || dayjs().format('YYYY-MM-DD');
-  const branch = get('branch') || process.env.DEFAULT_BRANCH || '總館';
-  const room = get('room') || '';
-  return { date, branch, room };
-}
-
-async function fetchSchedulerJson(branch) {
+export async function fetchSchedulerJson(branch) {
   const url = `${BASE}/roombooking/booksearch.booklst.jsp`;
   const res = await axios.get(url, { params: { forward_fg: 1, branch } });
   return res.data;
 }
 
-(async () => {
+export async function checkAvailability({ date, branch, room }) {
   try {
-    const { date, branch, room } = parseArgs();
     console.log(`Querying branch "${branch}" for ${date} ...`);
 
     const raw = await fetchSchedulerJson(branch);
@@ -35,7 +24,7 @@ async function fetchSchedulerJson(branch) {
 
     if (dayEvents.length === 0) {
       console.log('No events found for the given date (maybe closed or no data).');
-      process.exit(0);
+      return { ok: true, events: [], message: 'No events found' };
     }
 
     const filtered = room
@@ -47,15 +36,21 @@ async function fetchSchedulerJson(branch) {
     const grouped = groupByRoom(filtered);
     if (grouped.size === 0) {
       console.log(`No matching rooms for keyword "${room}".`);
-      process.exit(0);
+      return { ok: true, rooms: [], message: 'No matching rooms' };
     }
 
     console.log(`\n=== ${branch} — ${date} ===`);
+    const results = [];
     for (const [rm, evs] of grouped.entries()) {
-      console.log(formatRoomTimeline(rm, evs, date));
+      const timeline = formatRoomTimeline(rm, evs, date);
+      console.log(timeline);
       console.log('');
+      results.push({ room: rm, events: evs, timeline });
     }
+
+    return { ok: true, results };
   } catch (err) {
     console.error('[status] failed:', err?.response?.status, err?.response?.statusText, err?.message);
+    return { ok: false, error: err.message };
   }
-})();
+}

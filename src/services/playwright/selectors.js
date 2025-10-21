@@ -212,25 +212,48 @@ export async function fillBookingForm(page, { date, start, end, people }, debug 
   if (debug) console.log('[debug] filled date/time/people and agree checkbox (if any)');
 }
 
-export async function handleCaptchaAndSubmit(page, { username, password }, debug = false) {
-  // Try to locate a captcha image
+export async function handleCaptchaAndSubmit(page, { username, password, captchaCode, pendingParams }, debug = false) {
   const img = page.locator('img#captcha, img#captchaImg, img.captcha, img[src*="captcha"]').first();
   const hasImg = await img.count() > 0;
 
-  let code = '';
-  if (hasImg) {
-    // Save screenshot to file
-    const out = path.join(process.cwd(), 'captcha.png');
+  let code = captchaCode || '';
+  let out = '';
+
+    console.log('[debug] handleCaptchaAndSubmit start - captchaCode:', captchaCode);
+
+  // ① 若有 CAPTCHA 但未提供代碼 → 截圖並回傳
+  if (hasImg && !captchaCode) {
+    out = path.join(process.cwd(), 'captcha.png');
     await img.screenshot({ path: out });
-    console.log(`\nCAPTCHA saved to: ${out}`);
+    console.log(`[CAPTCHA] Saved to: ${out}`);
+
+    // 在 Discord 模式下，直接回傳圖片路徑，不等待輸入
+    if (process.env.DISCORD_MODE === 'true') {
+      return {
+        ok: false,
+        code: 'captcha_needed',
+        captchaPath: out,
+        pendingParams: { username, password, ...pendingParams }
+      };
+    }
+
+    // CLI 模式 → 手動輸入
     process.stdout.write('Enter CAPTCHA code > ');
     code = await new Promise(resolve => {
       process.stdin.resume();
       process.stdin.once('data', d => resolve(String(d).trim()));
     });
     process.stdin.pause();
+  }
 
-    // Fill captcha input
+  // ② 若已提供 captchaCode（Discord 第二次呼叫）
+  if (captchaCode) {
+    console.log(`[CAPTCHA] Using code: ${captchaCode}`);
+  }
+
+  // 填入驗證碼
+  if (hasImg) {
+    console.log('[debug] handleCaptchaAndSubmit submitting - captchaCode:', captchaCode);
     let ok = false;
     const candidates = [
       page.getByLabel(/驗證碼|Captcha/i).first(),
@@ -246,22 +269,23 @@ export async function handleCaptchaAndSubmit(page, { username, password }, debug
       }
     }
     assert(ok, 'captcha_input_missing', 'Cannot find "驗證碼" input box');
-  } else {
-    if (debug) console.log('[debug] no captcha image found on this page');
+  } else if (debug) {
+    console.log('[debug] no captcha image found on this page');
   }
 
-  // Optional: Fill credentials if present
+  // 帳密填入
   if (username) {
+    console.log('[debug] handleCaptchaAndSubmit start - username:', username);
     const u = page.getByLabel(/帳號|學號|User/i).first().or(page.locator('input[name*="userName"],input[id*="user"]'));
     if (await u.count() > 0) await u.fill(username);
   }
   if (password) {
+    console.log('[debug] handleCaptchaAndSubmit start - password: ', password);
     const p = page.getByLabel(/密碼|Password/i).first().or(page.locator('input[type="password"]'));
     if (await p.count() > 0) await p.fill(password);
   }
 
-  // Fill CAPTCHA and credentials ...
-  // --- Listen for alert dialogs (錯誤彈窗處理) ---
+  // 監聽 alert
   let dialogMessage = '';
   page.once('dialog', async dialog => {
     dialogMessage = dialog.message();
@@ -269,20 +293,18 @@ export async function handleCaptchaAndSubmit(page, { username, password }, debug
     await dialog.dismiss().catch(() => {});
   });
 
-  // Submit
+  // 送出表單
   const submit = page.getByRole('button', { name: /(確認|送出|提交|預約)/ }).first()
     .or(page.locator('input[type="submit"][value*="確認"]'))
     .or(page.locator('input[type="submit"][value*="送出"]'))
     .or(page.locator('input[type="submit"][value*="預約"]'));
+
   if (await submit.count() > 0) {
     await submit.click();
   } else {
-    const errorMsg = 'Cannot find submit button';
-    console.error(JSON.stringify({ ok: false, code: 'submit_button_missing', message: errorMsg }, null, 2));
-    throw new Error(`[submit_button_missing] ${errorMsg}`);
+    throw new Error('submit_button_missing');
   }
 
-  // Wait result
   await page.waitForLoadState('domcontentloaded').catch(() => {});
   await sleep(1200);
 
@@ -291,22 +313,17 @@ export async function handleCaptchaAndSubmit(page, { username, password }, debug
     if (/驗證碼/i.test(dialogMessage)) codeType = 'captcha_error';
     if (/帳號|密碼/i.test(dialogMessage)) codeType = 'auth_error';
     if (/額滿|無法預約|滿額/i.test(dialogMessage)) codeType = 'slot_full';
-    return {
-      ok: false,
-      code: codeType,
-      message: dialogMessage,
-      reason: dialogMessage
-    };
+    return { ok: false, code: codeType, message: dialogMessage, reason: dialogMessage };
   }
 
-  // Check success or error message
+  // 成功訊息檢查
   const success = await page.locator('text=預約成功').first().isVisible().catch(() => false);
   if (success) {
     console.log('✅ Booking success!');
     return { ok: true };
   }
 
-  // Try to extract error message
+  // 錯誤文字分析
   let errText = '';
   const possibleErrorSelectors = ['.error', '.alert', '.msg', '.message', '#content', '.main'];
   for (const sel of possibleErrorSelectors) {
@@ -326,3 +343,4 @@ export async function handleCaptchaAndSubmit(page, { username, password }, debug
 
   return { ok: false, code: codeType, message: 'Booking failed', reason: errText };
 }
+

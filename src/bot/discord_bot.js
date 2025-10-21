@@ -32,6 +32,7 @@ const commands = [
     .addStringOption(o => o.setName('branch').setDescription('館別(選填，未填則用預設)').setRequired(false))
     .addStringOption(o => o.setName('username').setDescription('圖書館帳號（選填，未填則用預設）').setRequired(false))
     .addStringOption(o => o.setName('password').setDescription('圖書館密碼（選填，未填則用預設）').setRequired(false))
+    .addBooleanOption(o => o.setName('show').setDescription('顯示瀏覽器視窗（debug 用）').setRequired(false))
 ];
 
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
@@ -97,6 +98,8 @@ client.on('interactionCreate', async (interaction) => {
       await interaction.reply('⚠️ 未提供帳密，且管理員也未設定預設帳密（USERNAME / PASSWORD）。');
       return;
     }
+    const show = interaction.options.getBoolean('show') || process.env.DISCORD_SHOW;
+
 
     await interaction.reply(`📝 嘗試預約 ${branch} ${room}，${date} ${start}-${end} (${people}人)...`);
 
@@ -110,7 +113,7 @@ client.on('interactionCreate', async (interaction) => {
       people,
       username,
       password,
-      show: false
+      show
     });
 
     if (result.captchaPath) {
@@ -140,7 +143,8 @@ client.on('interactionCreate', async (interaction) => {
           ...result.pendingParams,
           username,
           password,
-          captchaCode
+          captchaCode,
+          show
         });
 
         if (retry.ok) await msg.reply('✅ 預約成功！');

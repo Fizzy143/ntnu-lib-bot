@@ -1,6 +1,69 @@
 // selectors.js
 // 放 selectBranchAndRoom, fillBookingForm, handleCaptchaAndSubmit
 
+// selectors.js 或相同 module 中
+/**
+ * Try to read the minimum allowed people count from the page related to the people input.
+ * - peopleSelector: selector for the people input (default 'input[name="user_count"]')
+ * - debug: if true save console logs
+ * returns integer or null
+ */
+export async function getMinPeopleFromPage(page, peopleSelector = 'input[name="user_count"]', debug = false) {
+  return await page.evaluate(({ peopleSelector }) => {
+    function extractNumberFromText(text) {
+      if (!text) return null;
+      // common patterns:
+      // "最少人數 2", "最少人數: 2", "at least: 2", "至少 2 人"
+      const patterns = [
+        /最少(?:人數|人).*?(\d{1,3})/u,
+        /至少\s*(\d{1,3})/u,
+        /at\s*least[:\s]*?(\d{1,3})/i,
+        /minimum[:\s]*?(\d{1,3})/i,
+        /(\d{1,3})\s*人(?:起|以上|以上可借)?/u
+      ];
+      for (const r of patterns) {
+        const m = text.match(r);
+        if (m && m[1]) return parseInt(m[1], 10);
+      }
+      return null;
+    }
+
+    const el = document.querySelector(peopleSelector);
+    if (!el) return null;
+
+    // 1) check text nodes immediately after input
+    let node = el.nextSibling;
+    if (node) {
+      // nextSibling might be text node or element
+      let text = (node.nodeType === Node.TEXT_NODE) ? node.textContent : node.textContent;
+      const n = extractNumberFromText(text);
+      if (n) return n;
+    }
+
+    // 2) check parent element text (trim input text itself)
+    const parentText = el.parentElement ? el.parentElement.textContent : null;
+    if (parentText) {
+      const n = extractNumberFromText(parentText);
+      if (n) return n;
+    }
+
+    // 3) search for following sibling spans/divs (common markup: <span class="hint">最少人數: 2</span>)
+    const candidate = el.parentElement ? el.parentElement.querySelector('span,div,small,label') : null;
+    if (candidate) {
+      const n = extractNumberFromText(candidate.textContent);
+      if (n) return n;
+    }
+
+    // 4) fallback: search whole document for phrases near "最少" + number
+    const bodyText = document.body.textContent || '';
+    const nearMatch = extractNumberFromText(bodyText);
+    if (nearMatch) return nearMatch;
+
+    return null;
+  }, { peopleSelector });
+}
+
+//import { getMinPeopleFromPage } from './selectors.js';
 import path from 'path';
 
 function assert(cond, code, msg) {
@@ -122,9 +185,56 @@ export async function fillBookingForm(page, { date, start, end, people }, debug 
   }
 
   // People
+  /*
   ok = await safeFillByLabel(/人數|People|人/, String(people));
   if (!ok) ok = await tryFill(['input[name*="people"]', 'input[id*="people"]', 'input[name*="num"]', 'input[name="user_count"]'], String(people));
   assert(ok, 'field_people_missing', 'Cannot find "人數" field');
+  */
+  let minPeople = null;
+  try {
+    minPeople = await getMinPeopleFromPage(page, 'input[name="user_count"]', debug);
+    if (debug) console.log('[fillBookingForm] detected minPeople from page:', minPeople);
+  } catch (e) {
+    if (debug) console.warn('[fillBookingForm] getMinPeopleFromPage failed', e);
+  }
+
+  // decide which people value to use:
+  // if user provided people -> ensure at least minPeople
+  // if user didn't -> use minPeople if available else fallback to 1
+  let peopleToSet = people;
+  if (!peopleToSet) {
+    peopleToSet = minPeople || 1;
+  } else if (minPeople && Number(peopleToSet) < Number(minPeople)) {
+    // enforce min
+    if (debug) console.log(`[fillBookingForm] user-provided people (${peopleToSet}) < minPeople (${minPeople}), overriding.`);
+    peopleToSet = minPeople;
+  }
+
+  // now set the people input robustly (focus, set value, dispatch events)
+  try {
+    await page.evaluate(({ selector, val }) => {
+      const el = document.querySelector(selector);
+      if (!el) return false;
+      el.focus && el.focus();
+      el.value = String(val);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      el.blur && el.blur();
+      return true;
+    }, { selector: 'input[name="user_count"]', val: peopleToSet });
+    if (debug) console.log('[fillBookingForm] set people to', peopleToSet);
+  } catch (e) {
+    if (debug) console.warn('[fillBookingForm] setting people failed', e);
+  }
+
+  // optionally verify the value readback
+  try {
+    const read = await page.evaluate((sel) => {
+      const el = document.querySelector(sel);
+      return el ? el.value : null;
+    }, 'input[name="user_count"]');
+    if (debug) console.log('[fillBookingForm] readback people value:', read);
+  } catch (e) { if (debug) console.warn('readback failed', e); }
 
   // --- Usage description ---
   let usageValue = '討論'; // 先定義在外層，避免作用域問題

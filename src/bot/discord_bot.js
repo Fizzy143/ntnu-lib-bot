@@ -19,7 +19,7 @@ const commands = [
     .setName('status')
     .setDescription('查詢討論室可借時段')
     .addStringOption(o => o.setName('date').setDescription('日期 YYYY-MM-DD').setRequired(true))
-    .addStringOption(o => o.setName('branch').setDescription('館別').setRequired(true)),
+    .addStringOption(o => o.setName('branch').setDescription('館別').setRequired(false)),
 
   new SlashCommandBuilder()
     .setName('book')
@@ -28,7 +28,7 @@ const commands = [
     .addStringOption(o => o.setName('date').setDescription('日期').setRequired(true))
     .addStringOption(o => o.setName('start').setDescription('開始時間').setRequired(true))
     .addStringOption(o => o.setName('end').setDescription('結束時間').setRequired(true))
-    .addIntegerOption(o => o.setName('people').setDescription('人數').setRequired(true))
+    .addIntegerOption(o => o.setName('people').setDescription('人數').setRequired(false))
     .addStringOption(o => o.setName('branch').setDescription('館別(選填，未填則用預設)').setRequired(false))
     .addStringOption(o => o.setName('username').setDescription('圖書館帳號（選填，未填則用預設）').setRequired(false))
     .addStringOption(o => o.setName('password').setDescription('圖書館密碼（選填，未填則用預設）').setRequired(false))
@@ -44,7 +44,7 @@ const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
   console.log('✅ 指令註冊完成');
 })();
 
-client.once('ready', () => console.log(`🤖 已登入 ${client.user.tag}`));
+client.once('clientReady', () => console.log(`🤖 已登入 ${client.user.tag}`));
 
 // === Slash command handlers ===
 client.on('interactionCreate', async (interaction) => {
@@ -64,7 +64,7 @@ client.on('interactionCreate', async (interaction) => {
     const result = await checkAvailability({ date, branch });
 
     if (!result.ok || !result.results?.length) {
-      await interaction.followUp(`⚠️ 查無資料或發生錯誤。`);
+      await interaction.followUp(`⚠️ 查無資料或該時段無開放租借。`);
       return;
     }
 
@@ -101,7 +101,7 @@ client.on('interactionCreate', async (interaction) => {
     const show = interaction.options.getBoolean('show') || process.env.DISCORD_SHOW;
 
 
-    await interaction.reply(`📝 嘗試預約 ${branch} ${room}，${date} ${start}-${end} (${people}人)...`);
+    await interaction.reply(`📝 嘗試預約 ${branch} ${room}，${date} ${start}-${end} ...`);
 
     // 呼叫核心預約邏輯
     const result = await bookRoom({

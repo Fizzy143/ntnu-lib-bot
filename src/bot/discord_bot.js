@@ -155,7 +155,8 @@ client.on('interactionCreate', async (interaction) => {
     } else if (result.ok) {
       await interaction.followUp('✅ 預約成功！');
     } else {
-      await interaction.followUp(`⚠️ 結果：${JSON.stringify(result, null, 2)}`);
+      //await interaction.followUp(`⚠️ 結果：${JSON.stringify(result, null, 2)}`);
+      await interaction.followUp(`⚠️ 結果：${result.reason || result.message}`);
     }
   }
 });

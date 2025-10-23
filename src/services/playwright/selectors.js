@@ -349,6 +349,8 @@ export async function fillBookingForm(page, { date, start, end, people }, debug 
   if (debug) console.log('[debug] filled date/time/people and agree checkbox (if any)');
 }
 
+import { solveCaptcha } from './captchaSolver.js';
+
 export async function handleCaptchaAndSubmit(page, { username, password, captchaCode, pendingParams }, debug = false) {
   const img = page.locator('img#captcha, img#captchaImg, img.captcha, img[src*="captcha"]').first();
   const hasImg = await img.count() > 0;
@@ -364,8 +366,33 @@ export async function handleCaptchaAndSubmit(page, { username, password, captcha
     await img.screenshot({ path: out });
     console.log(`[CAPTCHA] Saved to: ${out}`);
 
+    // If auto-solve enabled, try Python solver before asking user
+    const autoSolve = process.env.AUTO_SOLVE_CAPTCHA === 'true';
+    if (autoSolve) {
+    try {
+      console.log('[CAPTCHA] AUTO_SOLVE_CAPTCHA enabled — calling python solver...');
+      // you can customize timeout here
+      const solved = await solveCaptcha(out, { timeout: Number(process.env.CAPTCHA_SOLVER_TIMEOUT || 10000) });
+      if (solved && String(solved).length > 0) {
+        console.log('[CAPTCHA] solver returned:', solved);
+        // assign captchaCode so later filling logic uses it
+        captchaCode = String(solved).trim();
+        // continue function — do NOT return captcha_needed
+        code = captchaCode;
+      } else {
+        console.warn('[CAPTCHA] solver returned empty result, falling back to manual flow');
+        if (process.env.DISCORD_MODE === 'true') {
+          return { ok: false, code: 'captcha_needed', captchaPath: out, pendingParams: { username, password, ...pendingParams } };
+        }
+        // else CLI: you can still prompt below or return
+      }
+    } catch (e) {
+      console.error('[CAPTCHA] solver error:', e.message);
+      // fallback to manual input
+    }}
+
     // 在 Discord 模式下，直接回傳圖片路徑，不等待輸入
-    if (process.env.DISCORD_MODE === 'true') {
+    if (process.env.DISCORD_MODE === 'true' && !captchaCode) {
       return {
         ok: false,
         code: 'captcha_needed',
@@ -374,6 +401,7 @@ export async function handleCaptchaAndSubmit(page, { username, password, captcha
       };
     }
 
+    if (!captchaCode) {
     // CLI 模式 → 手動輸入
     process.stdout.write('Enter CAPTCHA code > ');
     code = await new Promise(resolve => {
@@ -381,15 +409,16 @@ export async function handleCaptchaAndSubmit(page, { username, password, captcha
       process.stdin.once('data', d => resolve(String(d).trim()));
     });
     process.stdin.pause();
+    }
   }
 
-  // ② 若已提供 captchaCode（Discord 第二次呼叫）
+  // ② 若已提供 captchaCode 或自動解碼成功 → 填入並提交
   if (captchaCode) {
     console.log(`[CAPTCHA] Using code: ${captchaCode}`);
   }
 
   // 填入驗證碼
-  if (hasImg) {
+  if (hasImg || captchaCode) {
     console.log('[debug] handleCaptchaAndSubmit submitting - captchaCode:', captchaCode);
     let ok = false;
     const candidates = [

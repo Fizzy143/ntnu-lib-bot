@@ -25,17 +25,6 @@ export async function bookRoom({ branch, roomKeyword, date, start, end, people, 
       activeBookings.delete(username);
       return { ok: false, code: 'exception', message: 'Booking form no longer available (captcha/form vanished)' };
     }
-
-    // Re-fill the booking form fields again (defensive) so values won't be empty
-    // Note: fillBookingForm should be idempotent — it sets date/start/end/people
-    try {
-      console.log('[debug] Re-filling booking form before submitting CAPTCHA...');
-      await fillBookingForm(page, { date, start, end, people }, debug);
-    } catch (err) {
-      console.warn('[warning] refill booking form failed:', err);
-      // continue anyway — maybe not critical, but try submitting captcha below
-    }
-
   } else {
     // fresh booking attempt: create new browser session
     browser = await launchBrowser(!show);

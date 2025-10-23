@@ -165,8 +165,35 @@ export async function fillBookingForm(page, { date, start, end, people }, debug 
       const day = target.getDate();
 
       // Click the day button in the calendar popup
-      const dayBtn = page.locator(`//td[normalize-space(text())='${day}']`).first();
-      await dayBtn.click({ force: true });
+      // The date cells have class like "ng_cal_date_M_D_Y" and id like "date_ng_calendar_xxx_M_D_Y"
+      // Try multiple selectors to ensure we can click the correct day
+      const [month, dayNum, year] = [target.getMonth() + 1, day, target.getFullYear()];
+      
+      const daySelectors = [
+        `td[id*="date_ng_calendar"][id$="_${month}_${dayNum}_${year}"]`,
+        `td.ng_cal_selectable:has-text("${day}")`,
+        `td[rel="${month}/${dayNum}/${year}"]`,
+        `//td[contains(@class, 'ng_cal_date') and normalize-space(text())='${day}']`
+      ];
+      
+      let clicked = false;
+      for (const selector of daySelectors) {
+        const dayBtn = page.locator(selector).first();
+        if (await dayBtn.count() > 0) {
+          await dayBtn.click({ force: true });
+          clicked = true;
+          break;
+        }
+      }
+      
+      if (!clicked) {
+        console.warn(`⚠️ Could not find day button for ${date}, trying fallback`);
+        // Fallback: just click any td with the day number
+        const fallbackBtn = page.locator(`td:has-text("${day}")`).first();
+        if (await fallbackBtn.count() > 0) {
+          await fallbackBtn.click({ force: true });
+        }
+      }
 
       console.log(`[debug] Selected date ${date} via calendar.`);
     } else {
@@ -395,11 +422,28 @@ export async function handleCaptchaAndSubmit(page, { username, password, captcha
     if (await p.count() > 0) await p.fill(password);
   }
 
-  // 監聽 alert
+  // 監聽 alert（同時判斷是否為「預約成功」）
   let dialogMessage = '';
+  let dialogSuccess = false;
+  let dialogSuccessInfo = null;
+
   page.once('dialog', async dialog => {
-    dialogMessage = dialog.message();
-    console.log(`[alert] ${dialogMessage}`);
+    const msg = dialog.message() || '';
+    console.log(`[alert] ${msg}`);
+
+    // 判斷是否為成功訊息（例：預約結果:2025-10-28 13:00/15:00--成功!）
+    const successPattern = /預約結果[:：]?.*?(成功!?)/u;
+    const isSuccess = successPattern.test(msg) || (/成功/.test(msg) && /預約/.test(msg));
+
+    if (isSuccess) {
+      dialogSuccess = true;
+      dialogSuccessInfo = msg;
+      // 避免後續 if (dialogMessage) 被當作錯誤分支觸發
+      dialogMessage = '';
+    } else {
+      dialogMessage = msg;
+    }
+
     await dialog.dismiss().catch(() => {});
   });
 
@@ -427,8 +471,14 @@ export async function handleCaptchaAndSubmit(page, { username, password, captcha
   }
 
   // 成功訊息檢查
-  const success = await page.locator('text=預約成功').first().isVisible().catch(() => false);
-  if (success) {
+  if (dialogSuccess) {
+    console.log('✅ Booking success! (via alert)');
+    return { ok: true };
+  }
+
+  // 頁面內成功訊息檢查
+  const successMessage = await page.locator('text=預約結果').first().textContent().catch(() => '');
+  if (successMessage.includes('成功')) {
     console.log('✅ Booking success!');
     return { ok: true };
   }

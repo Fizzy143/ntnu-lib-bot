@@ -18,16 +18,16 @@ const commands = [
   new SlashCommandBuilder()
     .setName('status')
     .setDescription('查詢討論室可借時段')
-    .addStringOption(o => o.setName('date').setDescription('日期 YYYY-MM-DD').setRequired(true))
+    .addStringOption(o => o.setName('date').setDescription('日期 YYYY-MM-DD').setRequired(false))
     .addStringOption(o => o.setName('branch').setDescription('館別').setRequired(false)),
 
   new SlashCommandBuilder()
     .setName('book')
     .setDescription('預約討論室')
     .addStringOption(o => o.setName('room').setDescription('房號').setRequired(true))
-    .addStringOption(o => o.setName('date').setDescription('日期').setRequired(true))
     .addStringOption(o => o.setName('start').setDescription('開始時間').setRequired(true))
     .addStringOption(o => o.setName('end').setDescription('結束時間').setRequired(true))
+    .addStringOption(o => o.setName('date').setDescription('日期').setRequired(false))
     .addIntegerOption(o => o.setName('people').setDescription('人數').setRequired(false))
     .addStringOption(o => o.setName('branch').setDescription('館別(選填，未填則用預設)').setRequired(false))
     .addStringOption(o => o.setName('username').setDescription('圖書館帳號（選填，未填則用預設）').setRequired(false))
@@ -53,7 +53,7 @@ client.on('interactionCreate', async (interaction) => {
   const { commandName } = interaction;
 
   if (commandName === 'status') {
-    const date = interaction.options.getString('date');
+    const date = interaction.options.getString('date') || new Date().toLocaleDateString('zh-TW', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit' }).split('/').join('-');
     const branch = interaction.options.getString('branch') || process.env.DISCORD_DEFAULT_BRANCH || '公館分館';
     if (!branch) {
       await interaction.reply('⚠️ 未提供館別，請使用 /status 指令時帶上 --branch 參數，或設定預設館別於環境變數 DISCORD_DEFAULT_BRANCH 中。');
@@ -79,7 +79,7 @@ client.on('interactionCreate', async (interaction) => {
 
   if (commandName === 'book') {
     const room = interaction.options.getString('room');
-    const date = interaction.options.getString('date');
+    const date = interaction.options.getString('date') || new Date().toLocaleDateString('zh-TW', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit' }).split('/').join('-');
     const start = interaction.options.getString('start');
     const end = interaction.options.getString('end');
     const people = interaction.options.getInteger('people');

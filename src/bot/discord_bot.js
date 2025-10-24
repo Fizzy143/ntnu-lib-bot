@@ -154,10 +154,17 @@ client.on('interactionCreate', async (interaction) => {
       }
     } else if (result.ok) {
       await interaction.followUp('✅ 預約成功！');
+      
     } else {
       //await interaction.followUp(`⚠️ 結果：${JSON.stringify(result, null, 2)}`);
       await interaction.followUp(`⚠️ 結果：${result.reason || result.message}`);
     }
+    // 嘗試預約後自動顯示該時段的狀態
+    const statusResult = await checkAvailability({ date, branch });
+    const timelines = statusResult.results.map(r => r.timeline).join('\n\n');
+    const output = `=== ${branch} — ${date} ===\n${timelines}`;
+    await interaction.followUp(`📊 當天狀態：\n\`\`\`\n${output}\n\`\`\``);
+    
   }
 });
 

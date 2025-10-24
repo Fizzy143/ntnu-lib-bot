@@ -152,7 +152,19 @@ export async function fillBookingForm(page, { date, start, end, people }, debug 
     return false;
   };
 
-  // Date
+  // Check if booking date is today (Taiwan timezone) - skip date filling if true
+  const isToday = (() => {
+    const targetDate = new Date(date);
+    const nowTaipei = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
+    return targetDate.getFullYear() === nowTaipei.getFullYear() &&
+           targetDate.getMonth() === nowTaipei.getMonth() &&
+           targetDate.getDate() === nowTaipei.getDate();
+  })();
+
+  if (isToday) {
+    if (debug) console.log('[debug] Booking date is today, skipping date selection.');
+  } else {
+  // Date selector
   try {
     // locate the calendar icon (usually next to input)
     const dateTrigger = page.locator('img[onclick*="calendar"], img[title*="日期"], img[src*="calendar"], button[onclick*="calendar"]').first();
@@ -209,6 +221,7 @@ export async function fillBookingForm(page, { date, start, end, people }, debug 
     }
   } catch (e) {
     console.error('⚠️ Date picker handling failed:', e);
+  }
   }
 
   // People

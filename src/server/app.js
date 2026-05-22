@@ -6,6 +6,7 @@ import { checkAvailability } from '../usecases/checkAvailability.js';
 import { bookRoom } from '../usecases/bookRoom.js';
 import { getSession } from './sessionStore.js';
 import { getPublicConfig } from './config.js';
+import { setupCredentialsAPI } from './routes/credentials.js';
 
 const app = express();
 
@@ -126,5 +127,10 @@ app.post('/api/book/captcha', async (req, res) => {
     status: result.ok ? 'success' : 'failed'
   });
 });
+
+export function initializeCredentialsAPI(app, credentialsManager) {
+  const credRouter = setupCredentialsAPI(credentialsManager);
+  app.use(credRouter);
+}
 
 export default app;

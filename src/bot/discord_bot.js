@@ -16,12 +16,21 @@ import {
   getTaipeiToday,
   parseLibraryMessage
 } from './naturalLanguage.js';
+import { CredentialsManager } from '../services/credentials/credentialsManager.js';
+import {
+  setupCredCommands,
+  handleCredSet,
+  handleCredView,
+  handleCredDelete
+} from './commands/credentialCommands.js';
 
 const defaultBranch = normalizeBranchName(process.env.DISCORD_DEFAULT_BRANCH)
   || normalizeBranchName(process.env.DEFAULT_BRANCH)
   || '總館';
 const pendingActions = new Map();
 const pendingCaptchas = new Map();
+
+let credentialsManager = null;
 
 const client = new Client({
   intents: [
@@ -31,7 +40,7 @@ const client = new Client({
   ]
 });
 
-const commands = [
+const baseCommands = [
   new SlashCommandBuilder()
     .setName('status')
     .setDescription('查詢圖書館討論室房況')
@@ -52,6 +61,8 @@ const commands = [
     .addBooleanOption(option => option.setName('show').setDescription('顯示瀏覽器視窗').setRequired(false))
 ].map(command => command.toJSON());
 
+let credCommands = [];
+
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
 async function registerCommands() {
@@ -60,9 +71,10 @@ async function registerCommands() {
     return;
   }
 
+  const allCommands = [...baseCommands, ...credCommands];
   await rest.put(
     Routes.applicationGuildCommands(process.env.DISCORD_CLIENT_ID, process.env.DISCORD_GUILD_ID),
-    { body: commands }
+    { body: allCommands }
   );
   console.log('Discord slash commands registered');
 }
@@ -317,6 +329,24 @@ client.on('interactionCreate', async interaction => {
     if (interaction.commandName === 'book') {
       await interaction.reply('收到預約指令，準備處理...');
       await handleSlashBook(interaction);
+      return;
+    }
+
+    if (credentialsManager) {
+      if (interaction.commandName === 'cred-set') {
+        await handleCredSet(interaction, credentialsManager);
+        return;
+      }
+
+      if (interaction.commandName === 'cred-view') {
+        await handleCredView(interaction, credentialsManager);
+        return;
+      }
+
+      if (interaction.commandName === 'cred-delete') {
+        await handleCredDelete(interaction, credentialsManager);
+        return;
+      }
     }
   } catch (error) {
     console.error('[discord interaction error]', error);
@@ -341,6 +371,26 @@ client.on('messageCreate', async message => {
 if (!process.env.DISCORD_TOKEN) {
   console.warn('Discord bot not started: missing DISCORD_TOKEN');
 } else {
+  // 初始化 CredentialsManager
+  if (process.env.DATABASE_URL && process.env.CREDENTIALS_ENCRYPTION_KEY) {
+    try {
+      credentialsManager = new CredentialsManager(
+        process.env.DATABASE_URL,
+        process.env.CREDENTIALS_ENCRYPTION_KEY
+      );
+      await credentialsManager.initialize();
+      console.log('✅ CredentialsManager initialized with Supabase PostgreSQL');
+      
+      credCommands = await setupCredCommands(credentialsManager);
+    } catch (error) {
+      console.warn('⚠️  CredentialsManager initialization failed:', error.message);
+      console.warn('   Credential commands will not be available.');
+    }
+  } else {
+    console.warn('⚠️  DATABASE_URL or CREDENTIALS_ENCRYPTION_KEY not set');
+    console.warn('   Credential commands will not be available.');
+  }
+
   await registerCommands();
   await client.login(process.env.DISCORD_TOKEN);
 }

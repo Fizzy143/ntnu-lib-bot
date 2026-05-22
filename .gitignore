@@ -36,3 +36,29 @@ tmp/
 temp/
 *.tmp
 
+# 數據庫文件
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+
+# 凭證相關
+credentials.db
+credentials.db-*
+sessionStore/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 臨時文件
+tmp/
+temp/
+*.tmp

@@ -2,9 +2,15 @@
   "name": "ntnu-lib-bot",
   "version": "1.0.0",
   "type": "module",
-  "main": "status_cli.js",
+  "main": "src/server/index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "server": "node src/server/index.js",
+    "discord": "node src/bot/discord_bot.js",
+    "status": "node src/cli/status_cli.js",
+    "book": "node src/cli/book_cli.js",
+    "frontend:dev": "npm --prefix frontend run dev",
+    "frontend:build": "npm --prefix frontend run build",
+    "test": "echo \"No tests configured yet\""
   },
   "keywords": [],
   "author": "",
@@ -15,6 +21,7 @@
     "dayjs": "^1.11.18",
     "discord.js": "^14.23.2",
     "dotenv": "^17.2.3",
+    "express": "^5.1.0",
     "tesseract.js": "^6.0.1"
   },
   "devDependencies": {

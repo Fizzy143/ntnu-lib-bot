@@ -364,6 +364,17 @@ export async function fillBookingForm(page, { date, start, end, people }, debug 
 
 import { solveCaptcha } from './captchaSolver.js';
 
+async function saveCaptchaImage(page, fallbackPath = '') {
+  const img = page.locator('img#captcha, img#captchaImg, img.captcha, img[src*="captcha"]').first();
+  if (await img.count() === 0) {
+    return fallbackPath;
+  }
+
+  const outputPath = fallbackPath || path.join(process.cwd(), 'captcha.png');
+  await img.screenshot({ path: outputPath });
+  return outputPath;
+}
+
 export async function handleCaptchaAndSubmit(page, { username, password, captchaCode, pendingParams }, debug = false) {
   const img = page.locator('img#captcha, img#captchaImg, img.captcha, img[src*="captcha"]').first();
   const hasImg = await img.count() > 0;
@@ -454,12 +465,12 @@ export async function handleCaptchaAndSubmit(page, { username, password, captcha
 
   // 帳密填入
   if (username) {
-    console.log('[debug] handleCaptchaAndSubmit start - username:', username);
+    if (debug) console.log('[debug] handleCaptchaAndSubmit: username provided');
     const u = page.getByLabel(/帳號|學號|User/i).first().or(page.locator('input[name*="userName"],input[id*="user"]'));
     if (await u.count() > 0) await u.fill(username);
   }
   if (password) {
-    console.log('[debug] handleCaptchaAndSubmit start - password: ', password);
+    if (debug) console.log('[debug] handleCaptchaAndSubmit: password provided');
     const p = page.getByLabel(/密碼|Password/i).first().or(page.locator('input[type="password"]'));
     if (await p.count() > 0) await p.fill(password);
   }
@@ -509,6 +520,19 @@ export async function handleCaptchaAndSubmit(page, { username, password, captcha
     if (/驗證碼/i.test(dialogMessage)) codeType = 'captcha_error';
     if (/帳號|密碼/i.test(dialogMessage)) codeType = 'auth_error';
     if (/額滿|無法預約|滿額/i.test(dialogMessage)) codeType = 'slot_full';
+
+    if (codeType === 'captcha_error' && process.env.DISCORD_MODE === 'true') {
+      const retryCaptchaPath = await saveCaptchaImage(page, out).catch(() => out);
+      return {
+        ok: false,
+        code: 'captcha_needed',
+        captchaPath: retryCaptchaPath,
+        message: dialogMessage,
+        reason: dialogMessage,
+        pendingParams: { username, password, ...pendingParams }
+      };
+    }
+
     return { ok: false, code: codeType, message: dialogMessage, reason: dialogMessage };
   }
 

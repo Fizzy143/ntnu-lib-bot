@@ -1,9 +1,27 @@
-// src/bot/discord_bot.js
 import 'dotenv/config';
-import { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, AttachmentBuilder } from 'discord.js';
+import {
+  AttachmentBuilder,
+  Client,
+  GatewayIntentBits,
+  REST,
+  Routes,
+  SlashCommandBuilder
+} from 'discord.js';
+import { randomUUID } from 'crypto';
 import { bookRoom } from '../usecases/bookRoom.js';
 import { checkAvailability } from '../usecases/checkAvailability.js';
-import fs from 'fs';
+import { normalizeBranchName } from '../shared/branches.js';
+import {
+  buildIntentSummary,
+  getTaipeiToday,
+  parseLibraryMessage
+} from './naturalLanguage.js';
+
+const defaultBranch = normalizeBranchName(process.env.DISCORD_DEFAULT_BRANCH)
+  || normalizeBranchName(process.env.DEFAULT_BRANCH)
+  || '總館';
+const pendingActions = new Map();
+const pendingCaptchas = new Map();
 
 const client = new Client({
   intents: [
@@ -13,159 +31,316 @@ const client = new Client({
   ]
 });
 
-// === Slash Commands ===
 const commands = [
   new SlashCommandBuilder()
     .setName('status')
-    .setDescription('查詢討論室可借時段')
-    .addStringOption(o => o.setName('date').setDescription('日期 YYYY-MM-DD').setRequired(false))
-    .addStringOption(o => o.setName('branch').setDescription('館別').setRequired(false)),
-
+    .setDescription('查詢圖書館討論室房況')
+    .addStringOption(option => option.setName('date').setDescription('日期 YYYY-MM-DD').setRequired(false))
+    .addStringOption(option => option.setName('branch').setDescription('館別').setRequired(false))
+    .addStringOption(option => option.setName('room').setDescription('房間關鍵字').setRequired(false)),
   new SlashCommandBuilder()
     .setName('book')
-    .setDescription('預約討論室')
-    .addStringOption(o => o.setName('room').setDescription('房號').setRequired(true))
-    .addStringOption(o => o.setName('start').setDescription('開始時間').setRequired(true))
-    .addStringOption(o => o.setName('end').setDescription('結束時間').setRequired(true))
-    .addStringOption(o => o.setName('date').setDescription('日期').setRequired(false))
-    .addIntegerOption(o => o.setName('people').setDescription('人數').setRequired(false))
-    .addStringOption(o => o.setName('branch').setDescription('館別(選填，未填則用預設)').setRequired(false))
-    .addStringOption(o => o.setName('username').setDescription('圖書館帳號（選填，未填則用預設）').setRequired(false))
-    .addStringOption(o => o.setName('password').setDescription('圖書館密碼（選填，未填則用預設）').setRequired(false))
-    .addBooleanOption(o => o.setName('show').setDescription('顯示瀏覽器視窗（debug 用）').setRequired(false))
-];
+    .setDescription('預約圖書館討論室')
+    .addStringOption(option => option.setName('room').setDescription('房間，例如 403').setRequired(true))
+    .addStringOption(option => option.setName('start').setDescription('開始時間，例如 18:30').setRequired(true))
+    .addStringOption(option => option.setName('end').setDescription('結束時間，例如 20:30').setRequired(true))
+    .addStringOption(option => option.setName('date').setDescription('日期 YYYY-MM-DD').setRequired(false))
+    .addIntegerOption(option => option.setName('people').setDescription('人數').setRequired(false))
+    .addStringOption(option => option.setName('branch').setDescription('館別').setRequired(false))
+    .addStringOption(option => option.setName('username').setDescription('圖書館帳號').setRequired(false))
+    .addStringOption(option => option.setName('password').setDescription('圖書館密碼').setRequired(false))
+    .addBooleanOption(option => option.setName('show').setDescription('顯示瀏覽器視窗').setRequired(false))
+].map(command => command.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
-(async () => {
+
+async function registerCommands() {
+  if (!process.env.DISCORD_CLIENT_ID || !process.env.DISCORD_GUILD_ID) {
+    console.warn('Discord command registration skipped: missing DISCORD_CLIENT_ID or DISCORD_GUILD_ID');
+    return;
+  }
+
   await rest.put(
     Routes.applicationGuildCommands(process.env.DISCORD_CLIENT_ID, process.env.DISCORD_GUILD_ID),
     { body: commands }
   );
-  console.log('✅ 指令註冊完成');
-})();
+  console.log('Discord slash commands registered');
+}
 
-client.once('clientReady', () => console.log(`🤖 已登入 ${client.user.tag}`));
-
-// === Slash command handlers ===
-client.on('interactionCreate', async (interaction) => {
-  if (!interaction.isChatInputCommand()) return;
-
-  const { commandName } = interaction;
-
-  if (commandName === 'status') {
-    const date = interaction.options.getString('date') || new Date().toLocaleDateString('zh-TW', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit' }).split('/').join('-');
-    const branch = interaction.options.getString('branch') || process.env.DISCORD_DEFAULT_BRANCH || '公館分館';
-    if (!branch) {
-      await interaction.reply('⚠️ 未提供館別，請使用 /status 指令時帶上 --branch 參數，或設定預設館別於環境變數 DISCORD_DEFAULT_BRANCH 中。');
-      return;
-    }
-    await interaction.reply(`📅 正在查詢 ${branch} ${date} ...`);
-
-    const result = await checkAvailability({ date, branch });
-
-    if (!result.ok || !result.results?.length) {
-      await interaction.followUp(`⚠️ 查無資料或該時段無開放租借。`);
-      return;
-    }
-
-    // 把 timeline 字串串起來
-    const timelines = result.results.map(r => r.timeline).join('\n\n');
-
-    // 美化輸出
-    const output = `=== ${branch} — ${date} ===\n${timelines}`;
-
-    await interaction.followUp(`\`\`\`\n${output}\n\`\`\``);
+function formatAvailability(result) {
+  if (!result.ok) {
+    return `查詢失敗：${result.error || '未知錯誤'}`;
   }
 
-  if (commandName === 'book') {
-    const room = interaction.options.getString('room');
-    const date = interaction.options.getString('date') || new Date().toLocaleDateString('zh-TW', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit' }).split('/').join('-');
-    const start = interaction.options.getString('start');
-    const end = interaction.options.getString('end');
-    const people = interaction.options.getInteger('people');
-    const branch = interaction.options.getString('branch') || process.env.DISCORD_DEFAULT_BRANCH || '公館分館';
-    if (!branch) {
-      await interaction.reply('⚠️ 未提供館別，請使用 /book 指令時帶上 --branch 參數，或設定預設館別於環境變數 DISCORD_DEFAULT_BRANCH 中。');
-      return;
+  if (!result.results?.length) {
+    return `${result.branch} ${result.date} 沒有符合條件的房間資料。`;
+  }
+
+  const lines = [`${result.branch} ${result.date}`];
+  for (const room of result.results) {
+    const free = room.blocks
+      .filter(block => block.type === 'FREE')
+      .map(block => `${block.start}-${block.end}`);
+    const busy = room.blocks
+      .filter(block => block.type === 'BUSY')
+      .map(block => `${block.start}-${block.end}`);
+
+    lines.push('');
+    lines.push(room.room);
+    if (free.length) {
+      lines.push(`可用：${free.join('、')}`);
     }
-
-    // 使用者輸入的帳密（若有）；否則從 .env 讀取預設值
-    const username = interaction.options.getString('username') || process.env.USERNAME;
-    const password = interaction.options.getString('password') || process.env.PASSWORD;
-    
-    // 檢查是否有帳密可用
-    if (!username || !password) {
-      await interaction.reply('⚠️ 未提供帳密，且管理員也未設定預設帳密（USERNAME / PASSWORD）。');
-      return;
+    if (busy.length) {
+      lines.push(`已預約：${busy.join('、')}`);
     }
-    const show = interaction.options.getBoolean('show') || process.env.DISCORD_SHOW;
+  }
 
+  return lines.join('\n');
+}
 
-    await interaction.reply(`📝 嘗試預約 ${branch} ${room}，${date} ${start}-${end} ...`);
+function requireCredentials() {
+  return {
+    username: process.env.LIBRARY_USERNAME || process.env.LIB_USERNAME || process.env.NTNU_USERNAME || process.env.USERNAME || '',
+    password: process.env.LIBRARY_PASSWORD || process.env.LIB_PASSWORD || process.env.NTNU_PASSWORD || process.env.PASSWORD || ''
+  };
+}
 
-    // 呼叫核心預約邏輯
+function getDiscordShowDefault() {
+  return String(process.env.DISCORD_SHOW || '').toLowerCase() === 'true';
+}
+
+async function sendCaptchaChallenge(channel, userId, result, { username, password, sessionKey }) {
+  pendingCaptchas.set(userId, { username, password, sessionKey });
+  const file = new AttachmentBuilder(result.captchaPath);
+  await channel.send({
+    content: result.reason
+      ? `驗證碼需要手動確認：${result.reason}\n請直接回覆這張圖片的驗證碼。`
+      : '自動辨識未完成，請直接回覆這張圖片的驗證碼。',
+    files: [file]
+  });
+}
+
+async function performBooking({
+  channel,
+  reply,
+  userId,
+  branch,
+  room,
+  date,
+  start,
+  end,
+  people,
+  username,
+  password,
+  show = false,
+  sessionKey
+}) {
+  await reply(`開始預約：${branch} ${room} ${date} ${start}-${end}`);
+
+  const result = await bookRoom({
+    branch,
+    roomKeyword: room,
+    date,
+    start,
+    end,
+    people,
+    username,
+    password,
+    show,
+    sessionKey
+  });
+
+  if (result.code === 'captcha_needed' && result.captchaPath) {
+    await sendCaptchaChallenge(channel, userId, result, { username, password, sessionKey });
+    return;
+  }
+
+  if (result.ok) {
+    await reply('預約成功。');
+  } else {
+    await reply(`預約失敗：${result.reason || result.message || '未知錯誤'}`);
+  }
+}
+
+async function handleSlashStatus(interaction) {
+  const date = interaction.options.getString('date') || getTaipeiToday();
+  const branch = normalizeBranchName(interaction.options.getString('branch')) || defaultBranch;
+  const room = interaction.options.getString('room') || '';
+
+  await interaction.reply(`查詢中：${branch} ${date}`);
+  const result = await checkAvailability({ date, branch, room });
+  await interaction.followUp(`\`\`\`\n${formatAvailability(result)}\n\`\`\``);
+}
+
+async function handleSlashBook(interaction) {
+  const { username, password } = requireCredentials();
+  const account = interaction.options.getString('username') || username;
+  const secret = interaction.options.getString('password') || password;
+
+  if (!account || !secret) {
+    await interaction.reply('缺少圖書館帳號或密碼。請在 .env 設定 USERNAME / PASSWORD，或在指令中提供。');
+    return;
+  }
+
+  const booking = {
+    branch: normalizeBranchName(interaction.options.getString('branch')) || defaultBranch,
+    room: interaction.options.getString('room'),
+    date: interaction.options.getString('date') || getTaipeiToday(),
+    start: interaction.options.getString('start'),
+    end: interaction.options.getString('end'),
+    people: interaction.options.getInteger('people') || 2,
+    username: account,
+    password: secret,
+    show: interaction.options.getBoolean('show') ?? getDiscordShowDefault(),
+    sessionKey: `slash:${interaction.user.id}:${randomUUID()}`
+  };
+
+  await performBooking({
+    channel: interaction.channel,
+    reply: message => interaction.followUp(message),
+    userId: interaction.user.id,
+    ...booking
+  });
+}
+
+async function handleNaturalLanguageMessage(message) {
+  if (message.author.bot) {
+    return;
+  }
+
+  const content = message.content.trim();
+  const confirmKey = `confirm:${message.author.id}`;
+  const captchaState = pendingCaptchas.get(message.author.id);
+
+  if (captchaState) {
+    pendingCaptchas.delete(message.author.id);
     const result = await bookRoom({
-      branch,
-      roomKeyword: room,
-      date,
-      start,
-      end,
-      people,
-      username,
-      password,
-      show
+      captchaCode: content,
+      username: captchaState.username,
+      password: captchaState.password,
+      sessionKey: captchaState.sessionKey
     });
 
-    if (result.captchaPath) {
-      const file = new AttachmentBuilder(result.captchaPath);
-      await interaction.followUp({
-        content: `🧩 請輸入驗證碼（回覆這則訊息即可）`,
-        files: [file]
-      });
-
-      // 等待使用者輸入
-      const channel = interaction.channel || (await client.channels.fetch(interaction.channelId).catch(() => null));
-      if (!channel) return interaction.followUp('⚠️ 無法開啟訊息收集器。');
-
-      try {
-        const collected = await channel.awaitMessages({
-          filter: m => m.author.id === interaction.user.id,
-          max: 1,
-          time: 60000,
-          errors: ['time']
-        });
-
-        const msg = collected.first();
-        const captchaCode = msg.content.trim();
-
-        // 第二次呼叫時也要帶上帳密
-        const retry = await bookRoom({
-          ...result.pendingParams,
-          username,
-          password,
-          captchaCode,
-          show
-        });
-
-        if (retry.ok) await msg.reply('✅ 預約成功！');
-        else await msg.reply(`⚠️ 預約失敗：${retry.reason || retry.message}`);
-      } catch {
-        await channel.send('⌛ 驗證碼等待逾時，請重新輸入 `/book` 指令再試。');
-      }
-    } else if (result.ok) {
-      await interaction.followUp('✅ 預約成功！');
-      
-    } else {
-      //await interaction.followUp(`⚠️ 結果：${JSON.stringify(result, null, 2)}`);
-      await interaction.followUp(`⚠️ 結果：${result.reason || result.message}`);
+    if (result.code === 'captcha_needed' && result.captchaPath) {
+      await sendCaptchaChallenge(message.channel, message.author.id, result, captchaState);
+      return;
     }
-    // 嘗試預約後自動顯示該時段的狀態
-    const statusResult = await checkAvailability({ date, branch });
-    const timelines = statusResult.results.map(r => r.timeline).join('\n\n');
-    const output = `=== ${branch} — ${date} ===\n${timelines}`;
-    await interaction.followUp(`📊 當天狀態：\n\`\`\`\n${output}\n\`\`\``);
-    
+
+    await message.reply(result.ok
+      ? '驗證碼送出成功，預約已完成。'
+      : `驗證碼送出後仍失敗：${result.reason || result.message || '未知錯誤'}`
+    );
+    return;
+  }
+
+  if (isConfirmationMessage(content) && pendingActions.has(confirmKey)) {
+    const pending = pendingActions.get(confirmKey);
+    pendingActions.delete(confirmKey);
+    await performBooking({
+      channel: message.channel,
+      reply: text => message.reply(text),
+      userId: message.author.id,
+      ...pending
+    });
+    return;
+  }
+
+  const parsed = parseLibraryMessage(content);
+  if (!parsed) {
+    return;
+  }
+
+  if (parsed.intent === 'status') {
+    const result = await checkAvailability({
+      date: parsed.date || getTaipeiToday(),
+      branch: normalizeBranchName(parsed.branch) || defaultBranch,
+      room: parsed.room || ''
+    });
+    await message.reply(`\`\`\`\n${formatAvailability(result)}\n\`\`\``);
+    return;
+  }
+
+  const { username, password } = requireCredentials();
+  if (!username || !password) {
+    await message.reply('目前 bot 尚未設定圖書館帳號密碼，無法直接幫你預約。');
+    return;
+  }
+
+  if (!parsed.room || !parsed.start || !parsed.end) {
+    await message.reply(`我目前理解成：${buildIntentSummary(parsed)}。\n但預約還缺少房間或時間，請補充後再試一次。`);
+    return;
+  }
+
+  const booking = {
+    branch: normalizeBranchName(parsed.branch) || defaultBranch,
+    room: parsed.room,
+    date: parsed.date || getTaipeiToday(),
+    start: parsed.start,
+    end: parsed.end,
+    people: parsed.people || 2,
+    username,
+    password,
+    show: getDiscordShowDefault(),
+    sessionKey: message.author.id
+  };
+
+  pendingActions.set(confirmKey, booking);
+  await message.reply(
+    `我理解成：${buildIntentSummary({
+      ...parsed,
+      branch: booking.branch,
+      date: booking.date,
+      people: booking.people
+    })}。\n如果要送出預約，請直接回覆「確認」。`
+  );
+}
+
+function isConfirmationMessage(content) {
+  return /^(確認|確定|好|可以|送出|ok|okay|yes|y)$/i.test(String(content || '').trim());
+}
+
+client.once('clientReady', () => {
+  console.log(`Discord bot ready: ${client.user.tag}`);
+});
+
+client.on('interactionCreate', async interaction => {
+  if (!interaction.isChatInputCommand()) {
+    return;
+  }
+
+  try {
+    if (interaction.commandName === 'status') {
+      await handleSlashStatus(interaction);
+      return;
+    }
+
+    if (interaction.commandName === 'book') {
+      await interaction.reply('收到預約指令，準備處理...');
+      await handleSlashBook(interaction);
+    }
+  } catch (error) {
+    console.error('[discord interaction error]', error);
+    const text = '處理指令時發生錯誤。';
+    if (interaction.deferred || interaction.replied) {
+      await interaction.followUp(text);
+    } else {
+      await interaction.reply(text);
+    }
   }
 });
 
-client.login(process.env.DISCORD_TOKEN);
+client.on('messageCreate', async message => {
+  try {
+    await handleNaturalLanguageMessage(message);
+  } catch (error) {
+    console.error('[discord message error]', error);
+    await message.reply('處理訊息時發生錯誤，請再試一次。');
+  }
+});
+
+if (!process.env.DISCORD_TOKEN) {
+  console.warn('Discord bot not started: missing DISCORD_TOKEN');
+} else {
+  await registerCommands();
+  await client.login(process.env.DISCORD_TOKEN);
+}

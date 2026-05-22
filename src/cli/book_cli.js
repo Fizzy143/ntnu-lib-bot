@@ -47,8 +47,8 @@ function parseArgs() {
     branch, roomKeyword, date, start, end, people, show, debug
   } = parseArgs();
 
-  const username = process.env.USERNAME || '';
-  const password = process.env.PASSWORD || '';
+  const username = process.env.LIBRARY_USERNAME || process.env.LIB_USERNAME || process.env.NTNU_USERNAME || process.env.USERNAME || '';
+  const password = process.env.LIBRARY_PASSWORD || process.env.LIB_PASSWORD || process.env.NTNU_PASSWORD || process.env.PASSWORD || '';
 
   // Parameter validation
   assert(branch, 'arg_branch_required', 'Missing --branch (e.g., 總館/公館分館/林口分館)');

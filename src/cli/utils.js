@@ -1,62 +1,115 @@
 import dayjs from 'dayjs';
 import minMax from 'dayjs/plugin/minMax.js';
+
 dayjs.extend(minMax);
 
 export function normalizeSchedulerPayload(raw) {
   const list = Array.isArray(raw) ? raw : (Array.isArray(raw?.data) ? raw.data : []);
-  return list.map(ev => ({
-    id: ev.id ?? ev.event_id ?? '',
-    text: String(ev.text ?? ev.title ?? ev.room ?? '').trim(),
-    room: String(ev.room ?? ev.text ?? '').trim(),
-    start: ev.start_date ?? ev.start ?? ev.startDate ?? '',
-    end: ev.end_date ?? ev.end ?? ev.endDate ?? '',
-  })).filter(e => e.start && e.end);
+
+  return list
+    .map(event => ({
+      id: event.id ?? event.event_id ?? '',
+      text: String(event.text ?? event.title ?? event.room ?? '').trim(),
+      room: String(event.room ?? event.text ?? '').trim(),
+      start: event.start_date ?? event.start ?? event.startDate ?? '',
+      end: event.end_date ?? event.end ?? event.endDate ?? ''
+    }))
+    .filter(event => event.start && event.end);
 }
 
 export function filterByDate(list, ymd) {
   const startOfDay = dayjs(ymd).startOf('day');
   const endOfDay = dayjs(ymd).endOf('day');
-  return list.filter(e => {
-    const s = dayjs(e.start);
-    const t = dayjs(e.end);
-    return s.isBefore(endOfDay) && t.isAfter(startOfDay);
+
+  return list.filter(event => {
+    const start = dayjs(event.start);
+    const end = dayjs(event.end);
+    return start.isBefore(endOfDay) && end.isAfter(startOfDay);
   });
 }
 
 export function groupByRoom(list) {
   const map = new Map();
-  for (const e of list) {
-    const key = e.room || guessRoomFromText(e.text);
-    if (!map.has(key)) map.set(key, []);
-    map.get(key).push(e);
+
+  for (const event of list) {
+    const key = event.room || guessRoomFromText(event.text);
+    if (!map.has(key)) {
+      map.set(key, []);
+    }
+    map.get(key).push(event);
   }
-  for (const arr of map.values()) {
-    arr.sort((a,b)=> dayjs(a.start).valueOf() - dayjs(b.start).valueOf());
+
+  for (const events of map.values()) {
+    events.sort((a, b) => dayjs(a.start).valueOf() - dayjs(b.start).valueOf());
   }
+
   return map;
 }
 
-function guessRoomFromText(txt) {
-  const m = txt.match(/(Room\s*\d+|\d{3}\s*團討室)/i);
-  return m ? m[0].replace(/\s+/g, '') : (txt || 'UNKNOWN');
+function guessRoomFromText(text) {
+  const match = text.match(/(Room\s*\d+|\d{3})/i);
+  return match ? match[0].replace(/\s+/g, '') : (text || 'UNKNOWN');
 }
 
-export function formatRoomTimeline(room, events, dateYmd) {
+export function buildRoomBlocks(events, dateYmd) {
   const dayStart = dayjs(`${dateYmd} 08:00`);
-  const dayEnd   = dayjs(`${dateYmd} 22:00`);
+  const dayEnd = dayjs(`${dateYmd} 22:00`);
   const blocks = [];
   let cursor = dayStart;
 
-  for (const e of events) {
-    const s = dayjs(e.start);
-    const t = dayjs(e.end);
-    if (s.isAfter(cursor)) blocks.push({ type: 'FREE', start: cursor, end: s });
-    blocks.push({ type: 'BUSY', start: dayjs.max(s, dayStart), end: dayjs.min(t, dayEnd) });
-    cursor = dayjs.max(cursor, t);
-}
-if (cursor.isBefore(dayEnd)) blocks.push({ type: 'FREE', start: cursor, end: dayEnd });
+  for (const event of events) {
+    const start = dayjs(event.start);
+    const end = dayjs(event.end);
 
-const lines = blocks.map(b => `${b.start.format('HH:mm')}-${b.end.format('HH:mm')} ${b.type==='FREE'?'可借':'已被預訂'}`);
-return `【${room}】\n` + lines.join('\n');
+    if (start.isAfter(cursor)) {
+      blocks.push({ type: 'FREE', start: cursor, end: start });
+    }
+
+    blocks.push({
+      type: 'BUSY',
+      start: dayjs.max(start, dayStart),
+      end: dayjs.min(end, dayEnd)
+    });
+
+    cursor = dayjs.max(cursor, end);
+  }
+
+  if (cursor.isBefore(dayEnd)) {
+    blocks.push({ type: 'FREE', start: cursor, end: dayEnd });
+  }
+
+  return blocks
+    .filter(block => block.end.isAfter(block.start))
+    .map(block => ({
+      type: block.type,
+      start: block.start.format('HH:mm'),
+      end: block.end.format('HH:mm')
+    }));
 }
 
+export function formatRoomTimeline(room, events, dateYmd) {
+  const blocks = buildRoomBlocks(events, dateYmd);
+  const lines = blocks.map(block => `${block.start}-${block.end} ${block.type}`);
+  return `${room}\n${lines.join('\n')}`;
+}
+
+export function buildAvailabilityResponse({ branch, date, grouped }) {
+  const rooms = Array.from(grouped.entries()).map(([room, events]) => ({
+    room,
+    events: events.map(event => ({
+      id: event.id,
+      text: event.text,
+      start: dayjs(event.start).format('HH:mm'),
+      end: dayjs(event.end).format('HH:mm')
+    })),
+    blocks: buildRoomBlocks(events, date),
+    timeline: formatRoomTimeline(room, events, date)
+  }));
+
+  return {
+    branch,
+    date,
+    roomCount: rooms.length,
+    rooms
+  };
+}

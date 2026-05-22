@@ -1,7 +1,7 @@
 // src/services/captchaSolver.js
 import { spawn } from 'child_process';
 
-export function solveCaptcha(imagePath, { timeout = 10000, pythonCmd = 'python3', args = [] } = {}) {
+export function solveCaptcha(imagePath, { timeout = 10000, pythonCmd = process.env.PYTHON_CMD || defaultPythonCommand(), args = [] } = {}) {
   return new Promise((resolve, reject) => {
     if (!imagePath) return reject(new Error('imagePath required'));
 
@@ -61,4 +61,8 @@ export function solveCaptcha(imagePath, { timeout = 10000, pythonCmd = 'python3'
       return reject(new Error('captcha-solver-parse-failed'));
     });
   });
+}
+
+function defaultPythonCommand() {
+  return process.platform === 'win32' ? 'python' : 'python3';
 }

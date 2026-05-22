@@ -2,6 +2,8 @@
 
 NTNU Library Bot is evolving from a CLI and Discord automation project into an online booking service with a Vue frontend and a Node.js API backend.
 
+**🌟 最新功能：** 多人部署 + Discord/Web 雙介面凭證管理系統，所有實例共享 Supabase 凭証存儲。
+
 ## Current structure
 
 - `src/usecases`
@@ -54,45 +56,69 @@ On Windows, prefer `LIBRARY_USERNAME` and `LIBRARY_PASSWORD` instead of `USERNAM
 
 ## Commands
 
-Install backend dependencies:
+### Quick Start (一鍵安裝)
+
+**Windows:**
+```bash
+git clone https://github.com/YOUR_USERNAME/ntnu-lib-bot.git
+cd ntnu-lib-bot
+.\setup.ps1
+```
+
+**macOS/Linux:**
+```bash
+git clone https://github.com/YOUR_USERNAME/ntnu-lib-bot.git
+cd ntnu-lib-bot
+chmod +x setup.sh
+./setup.sh
+```
+
+📖 詳細部署指南，請查看 [DEPLOYMENT.md](./DEPLOYMENT.md)
+
+### Install backend dependencies:
 
 ```bash
 npm install
 ```
 
-Install frontend dependencies:
+### Install frontend dependencies:
 
 ```bash
 npm --prefix frontend install
 ```
 
-Run the API server:
+### Run the API server:
 
 ```bash
 npm run server
 ```
 
-Run the Vue frontend in development:
+### Run the Vue frontend in development:
 
 ```bash
 npm run frontend:dev
 ```
 
-Build the Vue frontend:
+### Build the Vue frontend:
 
 ```bash
 npm run frontend:build
 ```
 
-Existing tools:
+### Run Discord Bot:
+
+```bash
+npm run discord
+```
+
+### Existing tools:
 
 ```bash
 npm run status -- --date 2026-05-22 --branch 總館 --room 304
 npm run book -- --branch 公館分館 --room 403 --date 2026-05-22 --start 18:30 --end 20:30 --people 4 --show
-npm run discord
 ```
 
-For local CAPTCHA OCR, create a project virtual environment and install the Python dependency:
+### For local CAPTCHA OCR, create a project virtual environment and install the Python dependency:
 
 ```bash
 python -m venv .venv
@@ -102,6 +128,35 @@ python -m venv .venv
 Set `PYTHON_CMD=.venv\Scripts\python.exe` in `.env`.
 
 If you want to watch the browser automation locally while testing Discord bookings, set `DISCORD_SHOW=true` in `.env` or pass `show=true` in the `/book` slash command.
+
+## 🆕 新功能：凭證管理系統
+
+### Discord 命令
+
+```
+/cred-set <username> <password>     # 保存圖書館賬號密碼
+/cred-view                          # 查看已保存的賬號（密碼掩蓋）
+/cred-delete                        # 刪除已保存的賬號
+/book --room 403 ...                # 自動使用保存的賬號進行預約
+```
+
+### Web 介面
+
+在 Web 應用中新增「凭證管理」頁面，用戶可以：
+- 💾 保存圖書館賬號密碼
+- 👁️ 查看已保存的凭證
+- 🗑️ 刪除凭證
+- 🔄 自動帶入預約表單
+
+### 多人部署
+
+所有運行的 Bot 實例使用同一個 Supabase PostgreSQL 數據庫：
+- 👥 多人各自在自己的電腦上運行 Bot 和 Web 服務
+- 📦 凭証存儲在 Supabase（免費 1GB）
+- 🔄 所有實例自動同步凭證數據
+- ✅ 無單點故障，任何實例掉線其他繼續服務
+
+詳細信息見 [DEPLOYMENT.md](./DEPLOYMENT.md)
 
 ## Notes
 

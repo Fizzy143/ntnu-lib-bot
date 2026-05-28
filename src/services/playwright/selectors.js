@@ -81,9 +81,56 @@ function to24h(t) {
   return t.includes(':') ? t : `${t}:00`;
 }
 
+function normalizeServiceBase(value) {
+  return String(value || '').trim().replace(/\/+$/, '');
+}
+
+function getServiceBaseCandidates(serviceBase) {
+  const candidates = [
+    normalizeServiceBase(serviceBase),
+    'https://www.lib.ntnu.edu.tw/service',
+    'https://libroot.lib.ntnu.edu.tw/service'
+  ];
+
+  return candidates.filter((candidate, index) => candidate && candidates.indexOf(candidate) === index);
+}
+
+function isNetworkReachabilityError(error) {
+  const message = String(error?.message || error || '');
+  return /ERR_ADDRESS_UNREACHABLE|ERR_NAME_NOT_RESOLVED|ERR_CONNECTION_TIMED_OUT|ERR_CONNECTION_REFUSED|ERR_NETWORK_CHANGED|net::/i.test(message);
+}
+
 export async function selectBranchAndRoom(page, serviceBase, branch, roomKeyword, debug = false) {
-  const startUrl = `${serviceBase}/facility_03.jsp`;
-  await page.goto(startUrl, { waitUntil: 'domcontentloaded' });
+  const serviceBases = getServiceBaseCandidates(serviceBase);
+  let activeServiceBase = serviceBases[0];
+  let lastError = null;
+
+  for (const candidate of serviceBases) {
+    const startUrl = `${candidate}/facility_03.jsp`;
+    try {
+      await page.goto(startUrl, { waitUntil: 'domcontentloaded' });
+      activeServiceBase = candidate;
+      if (debug && candidate !== serviceBases[0]) {
+        console.log(`[debug] booking page fallback succeeded with ${candidate}`);
+      }
+      lastError = null;
+      break;
+    } catch (error) {
+      lastError = error;
+      if (!isNetworkReachabilityError(error)) {
+        throw error;
+      }
+    }
+  }
+
+  if (lastError) {
+    const attemptedHosts = serviceBases.join(', ');
+    throw new Error(
+      `[library_service_unreachable] Cannot reach booking page. Attempted: ${attemptedHosts}. `
+      + `Please check this computer's DNS, firewall, proxy, VPN, or outbound HTTPS access. `
+      + `Last error: ${lastError.message}`
+    );
+  }
 
   // 1) Branch radio
   // input[name="place"][value="總館|公館分館|林口分館"]
@@ -114,6 +161,7 @@ export async function selectBranchAndRoom(page, serviceBase, branch, roomKeyword
 
   if (debug) {
     console.log('[debug] matched room label:', matchedLabel);
+    console.log('[debug] using service base:', activeServiceBase);
   }
 
   // 3) Click "我要預約"

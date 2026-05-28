@@ -6,6 +6,12 @@
   "scripts": {
     "server": "node src/server/index.js",
     "discord": "node src/bot/discord_bot.js",
+    "discord:validate": "node scripts/validate-discord-env.mjs",
+    "discord:deploy:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-discord-windows.ps1",
+    "discord:docker:build": "docker compose -f docker-compose.discord.yml build",
+    "discord:docker:up": "docker compose -f docker-compose.discord.yml up -d",
+    "discord:docker:logs": "docker compose -f docker-compose.discord.yml logs -f discord-bot",
+    "discord:docker:down": "docker compose -f docker-compose.discord.yml down",
     "status": "node src/cli/status_cli.js",
     "book": "node src/cli/book_cli.js",
     "frontend:dev": "npm --prefix frontend run dev",
@@ -17,6 +23,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@supabase/supabase-js": "^2.106.1",
     "axios": "^1.12.2",
     "dayjs": "^1.11.18",
     "discord.js": "^14.23.2",

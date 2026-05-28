@@ -121,6 +121,31 @@ function getDiscordShowDefault() {
   return String(process.env.DISCORD_SHOW || '').toLowerCase() === 'true';
 }
 
+async function resolveDiscordBookingCredentials(userId, optionUsername, optionPassword) {
+  const explicitUsername = optionUsername || '';
+  const explicitPassword = optionPassword || '';
+
+  if (explicitUsername && explicitPassword) {
+    return { username: explicitUsername, password: explicitPassword };
+  }
+
+  if (credentialsManager) {
+    const saved = await credentialsManager.getCredential(userId);
+    if (saved) {
+      return {
+        username: saved.libraryUsername,
+        password: saved.plainPassword
+      };
+    }
+  }
+
+  if (explicitUsername || explicitPassword) {
+    return { username: explicitUsername, password: explicitPassword };
+  }
+
+  return { username: '', password: '' };
+}
+
 async function sendCaptchaChallenge(channel, userId, result, { username, password, sessionKey }) {
   pendingCaptchas.set(userId, { username, password, sessionKey });
   const file = new AttachmentBuilder(result.captchaPath);
@@ -159,6 +184,7 @@ async function performBooking({
     username,
     password,
     show,
+    manualCaptchaFallback: true,
     sessionKey
   });
 
@@ -185,12 +211,14 @@ async function handleSlashStatus(interaction) {
 }
 
 async function handleSlashBook(interaction) {
-  const { username, password } = requireCredentials();
-  const account = interaction.options.getString('username') || username;
-  const secret = interaction.options.getString('password') || password;
+  const { username: account, password: secret } = await resolveDiscordBookingCredentials(
+    interaction.user.id,
+    interaction.options.getString('username'),
+    interaction.options.getString('password')
+  );
 
   if (!account || !secret) {
-    await interaction.reply('缺少圖書館帳號或密碼。請在 .env 設定 USERNAME / PASSWORD，或在指令中提供。');
+    await interaction.followUp('缺少圖書館帳號或密碼。請先使用 /cred-set 保存，或在 /book 指令中提供 username 與 password。');
     return;
   }
 
@@ -272,9 +300,9 @@ async function handleNaturalLanguageMessage(message) {
     return;
   }
 
-  const { username, password } = requireCredentials();
+  const { username, password } = await resolveDiscordBookingCredentials(message.author.id);
   if (!username || !password) {
-    await message.reply('目前 bot 尚未設定圖書館帳號密碼，無法直接幫你預約。');
+    await message.reply('缺少圖書館帳號或密碼。請先使用 /cred-set 保存，再重新送出預約訊息。');
     return;
   }
 

@@ -7,10 +7,13 @@ import { bookRoom } from '../usecases/bookRoom.js';
 import { getSession } from './sessionStore.js';
 import { getPublicConfig } from './config.js';
 import { setupCredentialsAPI } from './routes/credentials.js';
+import { authenticateRequest, isAuthConfigured } from './auth.js';
 
 const app = express();
+let credentialsStore = null;
 
 app.use(express.json());
+app.use(authenticateRequest);
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true });
@@ -19,7 +22,10 @@ app.get('/api/health', (_req, res) => {
 app.get('/api/meta', (_req, res) => {
   res.json({
     ok: true,
-    ...getPublicConfig()
+    ...getPublicConfig(),
+    auth: {
+      configured: isAuthConfigured()
+    }
   });
 });
 
@@ -58,16 +64,24 @@ app.post('/api/book/start', async (req, res) => {
     start,
     end,
     people,
-    username,
-    password,
+    username: requestUsername,
+    password: requestPassword,
+    userId: requestUserId,
     show = false,
     debug = false
   } = req.body ?? {};
 
-  if (!branch || !roomKeyword || !date || !start || !end || !username || !password) {
+  const userId = req.user?.id || requestUserId;
+  const credentials = await resolveBookingCredentials({
+    userId,
+    username: requestUsername,
+    password: requestPassword
+  });
+
+  if (!branch || !roomKeyword || !date || !start || !end || !credentials.username || !credentials.password) {
     return res.status(400).json({
       ok: false,
-      message: 'branch, roomKeyword, date, start, end, username, and password are required'
+      message: 'branch, roomKeyword, date, start, end, and booking credentials are required'
     });
   }
 
@@ -79,10 +93,11 @@ app.post('/api/book/start', async (req, res) => {
     start,
     end,
     people,
-    username,
-    password,
+    username: credentials.username,
+    password: credentials.password,
     show,
     debug,
+    manualCaptchaFallback: true,
     sessionKey: sessionId
   });
 
@@ -104,7 +119,7 @@ app.post('/api/book/start', async (req, res) => {
 });
 
 app.post('/api/book/captcha', async (req, res) => {
-  const { sessionId, captchaCode, username, password, show = false, debug = false } = req.body ?? {};
+  const { sessionId, captchaCode, username, password, userId: requestUserId, show = false, debug = false } = req.body ?? {};
 
   if (!sessionId || !captchaCode) {
     return res.status(400).json({
@@ -113,12 +128,20 @@ app.post('/api/book/captcha', async (req, res) => {
     });
   }
 
-  const result = await bookRoom({
-    captchaCode,
+  const credentials = await resolveBookingCredentials({
+    userId: req.user?.id || requestUserId,
     username,
     password,
+    allowMissing: true
+  });
+
+  const result = await bookRoom({
+    captchaCode,
+    username: credentials.username,
+    password: credentials.password,
     show,
     debug,
+    manualCaptchaFallback: true,
     sessionKey: sessionId
   });
 
@@ -128,7 +151,33 @@ app.post('/api/book/captcha', async (req, res) => {
   });
 });
 
+async function resolveBookingCredentials({ userId, username, password, allowMissing = false }) {
+  const explicitUsername = String(username || '').trim();
+  const explicitPassword = String(password || '');
+
+  if (explicitUsername && explicitPassword) {
+    return { username: explicitUsername, password: explicitPassword };
+  }
+
+  if (credentialsStore && userId) {
+    const saved = await credentialsStore.getCredential(userId);
+    if (saved) {
+      return {
+        username: saved.libraryUsername,
+        password: saved.plainPassword
+      };
+    }
+  }
+
+  if (allowMissing) {
+    return { username: explicitUsername, password: explicitPassword };
+  }
+
+  return { username: '', password: '' };
+}
+
 export function initializeCredentialsAPI(app, credentialsManager) {
+  credentialsStore = credentialsManager;
   const credRouter = setupCredentialsAPI(credentialsManager);
   app.use(credRouter);
 }

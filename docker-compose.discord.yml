@@ -1,0 +1,22 @@
+services:
+  discord-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.discord
+    image: ntnu-lib-bot-discord:latest
+    container_name: ntnu-lib-bot-discord
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      DISCORD_MODE: "true"
+      DISCORD_SHOW: "${DISCORD_SHOW:-false}"
+      PYTHON_CMD: /app/.venv/bin/python
+    init: true
+    shm_size: "1gb"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

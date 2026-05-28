@@ -3,6 +3,15 @@ import { CredentialsEncryption } from './encryption.js';
 
 const { Client } = pg;
 
+function normalizeTimestamp(value) {
+  const timestamp = Number(value);
+  if (!Number.isFinite(timestamp)) {
+    throw new Error('Invalid credential timestamp from database');
+  }
+
+  return timestamp;
+}
+
 export class PostgresDriver {
   constructor(databaseUrl, encryptionKey) {
     this.databaseUrl = databaseUrl;
@@ -61,8 +70,8 @@ export class PostgresDriver {
       discordId: row.discord_id,
       libraryUsername: row.library_username,
       plainPassword: this.encryption.decrypt(row.encrypted_password),
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
+      createdAt: normalizeTimestamp(row.created_at),
+      updatedAt: normalizeTimestamp(row.updated_at),
     };
   }
 
@@ -87,8 +96,8 @@ export class PostgresDriver {
     return result.rows.map(row => ({
       discordId: row.discord_id,
       libraryUsername: row.library_username,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
+      createdAt: normalizeTimestamp(row.created_at),
+      updatedAt: normalizeTimestamp(row.updated_at),
     }));
   }
 }

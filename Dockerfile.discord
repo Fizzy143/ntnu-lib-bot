@@ -1,0 +1,22 @@
+FROM mcr.microsoft.com/playwright:v1.56.1-noble
+
+WORKDIR /app
+
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ENV PYTHON_CMD=/app/.venv/bin/python
+
+COPY package.json package-lock.json ./
+RUN npm ci --include=dev
+
+COPY requirements.txt ./
+RUN python3 -m venv .venv \
+  && .venv/bin/python -m pip install --upgrade pip \
+  && .venv/bin/python -m pip install -r requirements.txt
+
+COPY . .
+RUN chmod +x docker/discord-entrypoint.sh
+
+ENV NODE_ENV=production
+
+ENTRYPOINT ["docker/discord-entrypoint.sh"]
+CMD ["npm", "run", "discord"]

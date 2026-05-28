@@ -375,7 +375,17 @@ async function saveCaptchaImage(page, fallbackPath = '') {
   return outputPath;
 }
 
-export async function handleCaptchaAndSubmit(page, { username, password, captchaCode, pendingParams }, debug = false) {
+export async function handleCaptchaAndSubmit(
+  page,
+  {
+    username,
+    password,
+    captchaCode,
+    pendingParams,
+    manualCaptchaFallback = process.env.DISCORD_MODE === 'true'
+  },
+  debug = false
+) {
   const img = page.locator('img#captcha, img#captchaImg, img.captcha, img[src*="captcha"]').first();
   const hasImg = await img.count() > 0;
 
@@ -405,7 +415,7 @@ export async function handleCaptchaAndSubmit(page, { username, password, captcha
         code = captchaCode;
       } else {
         console.warn('[CAPTCHA] solver returned empty result, falling back to manual flow');
-        if (process.env.DISCORD_MODE === 'true') {
+        if (manualCaptchaFallback) {
           return { ok: false, code: 'captcha_needed', captchaPath: out, pendingParams: { username, password, ...pendingParams } };
         }
         // else CLI: you can still prompt below or return
@@ -416,7 +426,7 @@ export async function handleCaptchaAndSubmit(page, { username, password, captcha
     }}
 
     // 在 Discord 模式下，直接回傳圖片路徑，不等待輸入
-    if (process.env.DISCORD_MODE === 'true' && !captchaCode) {
+    if (manualCaptchaFallback && !captchaCode) {
       return {
         ok: false,
         code: 'captcha_needed',
@@ -521,7 +531,7 @@ export async function handleCaptchaAndSubmit(page, { username, password, captcha
     if (/帳號|密碼/i.test(dialogMessage)) codeType = 'auth_error';
     if (/額滿|無法預約|滿額/i.test(dialogMessage)) codeType = 'slot_full';
 
-    if (codeType === 'captcha_error' && process.env.DISCORD_MODE === 'true') {
+    if (codeType === 'captcha_error' && manualCaptchaFallback) {
       const retryCaptchaPath = await saveCaptchaImage(page, out).catch(() => out);
       return {
         ok: false,

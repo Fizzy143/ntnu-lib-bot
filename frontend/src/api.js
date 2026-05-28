@@ -1,7 +1,14 @@
+let authToken = '';
+
+export function setAuthToken(token) {
+  authToken = token || '';
+}
+
 async function request(url, options = {}) {
   const response = await fetch(url, {
     headers: {
       'Content-Type': 'application/json',
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
       ...(options.headers || {})
     },
     ...options
@@ -13,7 +20,10 @@ async function request(url, options = {}) {
     : await response.text();
 
   if (!response.ok && response.status !== 202) {
-    throw new Error(payload?.message || payload?.error || 'Request failed');
+    const error = new Error(payload?.message || payload?.error || 'Request failed');
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
   }
 
   return payload;
@@ -38,6 +48,32 @@ export function startBooking(payload) {
 export function submitCaptcha(payload) {
   return request('/api/book/captcha', {
     method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+export function getCredential(userId = '') {
+  const search = userId ? `?${new URLSearchParams({ userId }).toString()}` : '';
+  return request(`/api/credentials${search}`);
+}
+
+export function saveCredential(userId, username, password) {
+  const payload = { username, password };
+  if (userId) {
+    payload.userId = userId;
+  }
+
+  return request('/api/credentials', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+export function deleteCredential(userId = '') {
+  const payload = userId ? { userId } : {};
+
+  return request('/api/credentials', {
+    method: 'DELETE',
     body: JSON.stringify(payload)
   });
 }

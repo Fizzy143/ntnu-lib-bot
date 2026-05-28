@@ -15,7 +15,8 @@ export async function bookRoom({
   captchaCode,
   sessionKey,
   show = false,
-  debug = false
+  debug = false,
+  manualCaptchaFallback = false
 }) {
   const base = process.env.LIB_BASE || 'https://www.lib.ntnu.edu.tw';
   const serviceBase = process.env.LIB_SERVICE_BASE || `${base}/service`;
@@ -29,6 +30,8 @@ export async function bookRoom({
     const savedSession = getSession(bookingKey);
     if (savedSession) {
       ({ browser, context, page } = savedSession);
+      username ||= savedSession.username;
+      password ||= savedSession.password;
       console.log('[debug] Reusing existing browser session for CAPTCHA input (key:', bookingKey, ')');
     }
   }
@@ -57,10 +60,15 @@ export async function bookRoom({
     }
 
     console.log('Handling CAPTCHA (if present) and submitting ...');
-    const result = await handleCaptchaAndSubmit(page, { username, password, captchaCode }, debug);
+    const result = await handleCaptchaAndSubmit(page, {
+      username,
+      password,
+      captchaCode,
+      manualCaptchaFallback
+    }, debug);
 
     if (result.code === 'captcha_needed') {
-      saveSession(bookingKey, { browser, context, page, captchaPath: result.captchaPath });
+      saveSession(bookingKey, { browser, context, page, captchaPath: result.captchaPath, username, password });
       return {
         ...result,
         pendingParams: { branch, roomKeyword, date, start, end, people },

@@ -129,21 +129,25 @@ async function resolveDiscordBookingCredentials(userId, optionUsername, optionPa
     return { username: explicitUsername, password: explicitPassword };
   }
 
-  if (credentialsManager) {
-    const saved = await credentialsManager.getCredential(userId);
-    if (saved) {
-      return {
-        username: saved.libraryUsername,
-        password: saved.plainPassword
-      };
-    }
-  }
-
   if (explicitUsername || explicitPassword) {
     return { username: explicitUsername, password: explicitPassword };
   }
 
-  return { username: '', password: '' };
+  if (credentialsManager) {
+    try {
+      const saved = await credentialsManager.getCredential(userId);
+      if (saved) {
+        return {
+          username: saved.libraryUsername,
+          password: saved.plainPassword
+        };
+      }
+    } catch (error) {
+      console.warn('[discord credentials] Failed to load saved credentials:', error.message);
+    }
+  }
+
+  return requireCredentials();
 }
 
 async function sendCaptchaChallenge(channel, userId, result, { username, password, sessionKey }) {
@@ -402,21 +406,24 @@ if (!process.env.DISCORD_TOKEN) {
   // 初始化 CredentialsManager
   if (process.env.DATABASE_URL && process.env.CREDENTIALS_ENCRYPTION_KEY) {
     try {
-      credentialsManager = new CredentialsManager(
+      const manager = new CredentialsManager(
         process.env.DATABASE_URL,
         process.env.CREDENTIALS_ENCRYPTION_KEY
       );
-      await credentialsManager.initialize();
+      await manager.initialize();
+      credentialsManager = manager;
       console.log('✅ CredentialsManager initialized with Supabase PostgreSQL');
       
       credCommands = await setupCredCommands(credentialsManager);
     } catch (error) {
+      credentialsManager = null;
+      credCommands = [];
       console.warn('⚠️  CredentialsManager initialization failed:', error.message);
-      console.warn('   Credential commands will not be available.');
+      console.warn('   Credential commands will not be available. Falling back to .env booking credentials.');
     }
   } else {
     console.warn('⚠️  DATABASE_URL or CREDENTIALS_ENCRYPTION_KEY not set');
-    console.warn('   Credential commands will not be available.');
+    console.warn('   Credential commands will not be available. Falling back to .env booking credentials.');
   }
 
   await registerCommands();

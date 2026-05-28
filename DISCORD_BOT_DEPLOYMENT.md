@@ -36,6 +36,12 @@ CREDENTIALS_ENCRYPTION_KEY=
 docker compose -f docker-compose.discord.yml up -d --build
 ```
 
+6. Verify the deployment:
+
+```powershell
+npm run discord:docker:verify
+```
+
 Useful commands:
 
 ```powershell
@@ -49,6 +55,7 @@ Equivalent npm shortcuts:
 ```bash
 npm run discord:docker:build
 npm run discord:docker:up
+npm run discord:docker:verify
 npm run discord:docker:logs
 npm run discord:docker:down
 ```
@@ -57,10 +64,28 @@ npm run discord:docker:down
 
 ```powershell
 git pull
-docker compose -f docker-compose.discord.yml up -d --build
+npm run discord:docker:up
+npm run discord:docker:verify
 ```
 
 Docker uses `restart: unless-stopped`, so the bot will restart after failures and after Docker starts again.
+
+## What Verify Checks
+
+`npm run discord:docker:verify` runs four checks:
+
+1. Validates required Discord variables from `.env`
+2. Validates `docker-compose.discord.yml`
+3. Confirms the `discord-bot` container exists
+4. Waits for the `Discord bot ready:` log line and fails fast on common Docker startup errors
+
+This makes it easier to distinguish between "container exists" and "bot is actually connected to Discord".
+
+## Troubleshooting Docker Startup
+
+- If Docker build fails at `python3 -m venv .venv`, rebuild with the latest `Dockerfile.discord`. The image now installs `python3-venv` before creating the OCR virtualenv.
+- If logs show `/usr/bin/env: 'bash\r': No such file or directory`, rebuild with the latest files. The Docker image now normalizes `docker/discord-entrypoint.sh` to LF during build, and `.gitattributes` keeps `.sh` files on LF in Git.
+- If verify says required variables are missing, run `npm run discord:validate` and fill `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, and `DISCORD_GUILD_ID` in `.env`.
 
 ## Security Notes For Shared Computers
 

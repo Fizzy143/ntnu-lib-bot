@@ -1,4 +1,41 @@
-import 'dotenv/config';
+import { existsSync, readFileSync } from 'node:fs';
+
+function loadDotEnv(path = '.env') {
+  if (!existsSync(path)) {
+    return;
+  }
+
+  const content = readFileSync(path, 'utf8');
+
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) {
+      continue;
+    }
+
+    const index = rawLine.indexOf('=');
+    if (index <= 0) {
+      continue;
+    }
+
+    const key = rawLine.slice(0, index).trim();
+    if (process.env[key]) {
+      continue;
+    }
+
+    let value = rawLine.slice(index + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"'))
+      || (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+
+    process.env[key] = value;
+  }
+}
+
+loadDotEnv();
 
 const required = ['DISCORD_TOKEN', 'DISCORD_CLIENT_ID', 'DISCORD_GUILD_ID'];
 const missing = required.filter(name => !String(process.env[name] || '').trim());

@@ -13,6 +13,8 @@ services:
       DISCORD_MODE: "true"
       DISCORD_SHOW: "false"
       PYTHON_CMD: /app/.venv/bin/python
+    volumes:
+      - ./.local:/app/.local
     extra_hosts:
       - "host.docker.internal:host-gateway"
     init: true

@@ -20,6 +20,7 @@ import {
   parseLibraryMessageWithHermes,
   shouldUseHermesFallback
 } from './llmParser.js';
+import { recordParserFeedback } from './parserFeedbackStore.js';
 import { CredentialsManager } from '../services/credentials/credentialsManager.js';
 import {
   setupCredCommands,
@@ -293,10 +294,19 @@ async function handleNaturalLanguageMessage(message) {
     return;
   }
 
-  const parsed = await resolveLibraryMessage(content);
-  if (!parsed) {
+  const resolution = await resolveLibraryMessage(content);
+  if (!resolution.parsed) {
+    await recordParserFeedback({
+      reason: 'unparsed_message',
+      text: content,
+      userId: message.author.id,
+      channelId: message.channelId,
+      parser: 'none',
+      hermesAttempted: resolution.hermesAttempted
+    });
     return;
   }
+  const parsed = resolution.parsed;
 
   if (parsed.intent === 'status') {
     const result = await checkAvailability({
@@ -315,6 +325,22 @@ async function handleNaturalLanguageMessage(message) {
   }
 
   if (!parsed.room || !parsed.start || !parsed.end) {
+    await recordParserFeedback({
+      reason: 'incomplete_booking_message',
+      text: content,
+      userId: message.author.id,
+      channelId: message.channelId,
+      parser: parsed.parser || 'local',
+      hermesAttempted: resolution.hermesAttempted,
+      intent: parsed.intent,
+      branch: parsed.branch,
+      room: parsed.room,
+      people: parsed.people,
+      date: parsed.date,
+      start: parsed.start,
+      end: parsed.end,
+      missingFields: getMissingBookingFields(parsed)
+    });
     await message.reply(`我目前理解成：${buildIntentSummary(parsed)}。\n但預約還缺少房間或時間，請補充後再試一次。`);
     return;
   }
@@ -346,18 +372,28 @@ async function handleNaturalLanguageMessage(message) {
 async function resolveLibraryMessage(content) {
   const parsed = parseLibraryMessage(content);
   if (!shouldUseHermesFallback(content, parsed)) {
-    return parsed;
+    return {
+      parsed,
+      hermesAttempted: false
+    };
   }
 
   const hermesParsed = await parseLibraryMessageWithHermes(content, {
     today: getTaipeiToday()
   });
 
-  return hermesParsed || parsed;
+  return {
+    parsed: hermesParsed || parsed,
+    hermesAttempted: true
+  };
 }
 
 function isConfirmationMessage(content) {
   return /^(確認|確定|好|可以|送出|ok|okay|yes|y)$/i.test(String(content || '').trim());
+}
+
+function getMissingBookingFields(parsed) {
+  return ['room', 'start', 'end'].filter(field => !parsed[field]);
 }
 
 client.once('clientReady', () => {

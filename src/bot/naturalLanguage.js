@@ -24,25 +24,35 @@ export function parseLibraryMessage(text, { today = getTaipeiToday() } = {}) {
     return null;
   }
 
-  const intent = detectIntent(source);
+  const branch = parseBranch(source);
+  const room = parseRoom(source);
+  const people = parsePeople(source);
+  const date = parseDate(source, today);
+  const timeRange = parseTimeRange(source);
+  const intent = detectIntent(source, {
+    branch,
+    room,
+    people,
+    dateMentioned: hasExplicitDateReference(source),
+    hasTimeRange: Boolean(timeRange)
+  });
   if (!intent) {
     return null;
   }
 
-  const timeRange = parseTimeRange(source);
   return {
     intent,
-    branch: parseBranch(source),
-    room: parseRoom(source),
-    people: parsePeople(source),
-    date: parseDate(source, today),
+    branch,
+    room,
+    people,
+    date,
     start: timeRange?.start || '',
     end: timeRange?.end || '',
     rawText: source
   };
 }
 
-function detectIntent(text) {
+function detectIntent(text, context = {}) {
   if (/(查|看看|有沒有|空的|空房|哪些|status|availability)/i.test(text)) {
     return 'status';
   }
@@ -51,7 +61,23 @@ function detectIntent(text) {
     return 'book';
   }
 
+  if (shouldInferImplicitStatus(context)) {
+    return 'status';
+  }
+
   return null;
+}
+
+function shouldInferImplicitStatus({ branch, room, people, dateMentioned, hasTimeRange }) {
+  if (people || hasTimeRange) {
+    return false;
+  }
+
+  const signalCount = [Boolean(branch), Boolean(room), Boolean(dateMentioned)]
+    .filter(Boolean)
+    .length;
+
+  return signalCount >= 2;
 }
 
 function parseBranch(text) {
@@ -113,6 +139,15 @@ function parseDate(text, todayYmd) {
   }
 
   return todayYmd;
+}
+
+function hasExplicitDateReference(text) {
+  return (
+    /今天|今晚|明天|明晚|後天/.test(text)
+    || /(?:這|本|下)?(?:週|星期|禮拜)[日天一二三四五六]/.test(text)
+    || /(20\d{2})[/-](\d{1,2})[/-](\d{1,2})/.test(text)
+    || /(\d{1,2})[/-](\d{1,2})/.test(text)
+  );
 }
 
 function parseTimeRange(text) {

@@ -182,6 +182,46 @@ Expected Hermes response body:
 }
 ```
 
+## Tuning natural-language parsing
+
+For high-frequency phrases, prefer adding or refining local parser rules before relying on Hermes. This keeps common cases fast and predictable.
+
+- Local parser rules live in `src/bot/naturalLanguage.js`
+- Regression cases live in `tests/natural-language-cases.json`
+- Run the parser regression suite with `npm test`
+
+Each case entry supports:
+
+- `input`: the user message
+- `today`: the reference date used by the parser
+- `expected`: only the fields you want to assert
+- `expectNull`: use this instead of `expected` for intentionally unsupported or ambiguous inputs
+
+Useful cases to maintain:
+
+- `今天公館` -> status query for today's 公館分館
+- `明天總圖403` -> status query for tomorrow's room 403 in 總館
+- `公館403 7-9` -> keep ambiguous unless the user explicitly says they want to book
+
+## Parser feedback log
+
+The Discord bot can persist unresolved natural-language inputs so you can periodically review them and add new cases or rules.
+
+- `PARSER_FEEDBACK_ENABLED=true`
+- `PARSER_FEEDBACK_LOG_PATH=.local/natural-language-feedback.jsonl`
+- Docker now mounts `./.local` into the bot container, so the feedback log survives rebuilds
+
+Messages are logged when:
+
+- no parser can understand the message
+- a booking-like message is detected but still misses required fields such as room or time
+
+Review the accumulated cases with:
+
+```bash
+npm run review:parser-feedback
+```
+
 ## 🆕 新功能：凭證管理系統
 
 ### Discord 命令

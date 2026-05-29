@@ -17,7 +17,9 @@
     "book": "node src/cli/book_cli.js",
     "frontend:dev": "npm --prefix frontend run dev",
     "frontend:build": "npm --prefix frontend run build",
-    "test": "echo \"No tests configured yet\""
+    "review:parser-feedback": "node scripts/review-parser-feedback.mjs",
+    "test": "npm run test:natural-language",
+    "test:natural-language": "node scripts/test-natural-language.mjs"
   },
   "keywords": [],
   "author": "",

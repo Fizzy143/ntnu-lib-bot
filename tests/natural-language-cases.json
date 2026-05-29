@@ -1,0 +1,78 @@
+[
+  {
+    "name": "implicit status from date plus branch",
+    "today": "2026-05-29",
+    "input": "今天公館",
+    "expected": {
+      "intent": "status",
+      "branch": "公館分館",
+      "room": "",
+      "people": null,
+      "date": "2026-05-29",
+      "start": "",
+      "end": ""
+    }
+  },
+  {
+    "name": "implicit status from branch plus room",
+    "today": "2026-05-29",
+    "input": "總圖403",
+    "expected": {
+      "intent": "status",
+      "branch": "總館",
+      "room": "403",
+      "people": null,
+      "date": "2026-05-29",
+      "start": "",
+      "end": ""
+    }
+  },
+  {
+    "name": "implicit status from date plus room",
+    "today": "2026-05-29",
+    "input": "明天403",
+    "expected": {
+      "intent": "status",
+      "branch": "",
+      "room": "403",
+      "people": null,
+      "date": "2026-05-30",
+      "start": "",
+      "end": ""
+    }
+  },
+  {
+    "name": "explicit status still works",
+    "today": "2026-05-29",
+    "input": "看看林口明天有沒有空房",
+    "expected": {
+      "intent": "status",
+      "branch": "林口分館",
+      "room": "",
+      "people": null,
+      "date": "2026-05-30",
+      "start": "",
+      "end": ""
+    }
+  },
+  {
+    "name": "explicit booking with full details",
+    "today": "2026-05-29",
+    "input": "幫我約明天公館403 18:30-20:30 4人",
+    "expected": {
+      "intent": "book",
+      "branch": "公館分館",
+      "room": "403",
+      "people": 4,
+      "date": "2026-05-30",
+      "start": "18:30",
+      "end": "20:30"
+    }
+  },
+  {
+    "name": "time range without explicit intent stays conservative",
+    "today": "2026-05-29",
+    "input": "公館403 7-9",
+    "expectNull": true
+  }
+]

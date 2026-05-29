@@ -16,6 +16,10 @@ import {
   getTaipeiToday,
   parseLibraryMessage
 } from './naturalLanguage.js';
+import {
+  parseLibraryMessageWithHermes,
+  shouldUseHermesFallback
+} from './llmParser.js';
 import { CredentialsManager } from '../services/credentials/credentialsManager.js';
 import {
   setupCredCommands,
@@ -289,7 +293,7 @@ async function handleNaturalLanguageMessage(message) {
     return;
   }
 
-  const parsed = parseLibraryMessage(content);
+  const parsed = await resolveLibraryMessage(content);
   if (!parsed) {
     return;
   }
@@ -337,6 +341,19 @@ async function handleNaturalLanguageMessage(message) {
       people: booking.people
     })}。\n如果要送出預約，請直接回覆「確認」。`
   );
+}
+
+async function resolveLibraryMessage(content) {
+  const parsed = parseLibraryMessage(content);
+  if (!shouldUseHermesFallback(content, parsed)) {
+    return parsed;
+  }
+
+  const hermesParsed = await parseLibraryMessageWithHermes(content, {
+    today: getTaipeiToday()
+  });
+
+  return hermesParsed || parsed;
 }
 
 function isConfirmationMessage(content) {

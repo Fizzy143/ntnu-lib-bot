@@ -51,6 +51,7 @@ Important fields:
 - `LIBRARY_PASSWORD`
 - `PYTHON_CMD`
 - `DISCORD_SHOW`
+- `HERMES_PARSE_URL` (optional)
 
 On Windows, prefer `LIBRARY_USERNAME` and `LIBRARY_PASSWORD` instead of `USERNAME` because `USERNAME` is often already set by the operating system.
 
@@ -128,6 +129,58 @@ python -m venv .venv
 Set `PYTHON_CMD=.venv\Scripts\python.exe` in `.env`.
 
 If you want to watch the browser automation locally while testing Discord bookings, set `DISCORD_SHOW=true` in `.env` or pass `show=true` in the `/book` slash command.
+
+## Hermes parser fallback
+
+The Discord bot can optionally call a Hermes HTTP endpoint when the built-in rule parser cannot confidently understand a natural-language message.
+
+- The local parser still runs first.
+- Hermes is used only as a fallback for message understanding.
+- Booking execution, credentials, CAPTCHA handling, and final confirmation remain inside this project.
+
+Environment variables:
+
+- `HERMES_PARSE_URL`
+- `HERMES_PARSE_TOKEN`
+- `HERMES_PARSE_TIMEOUT_MS`
+
+Suggested Docker-to-host URL when Hermes runs on the same machine:
+
+```bash
+HERMES_PARSE_URL=http://host.docker.internal:8787/parse
+```
+
+Expected Hermes request body:
+
+```json
+{
+  "task": "parse_ntnu_library_message",
+  "text": "幫我約明晚總圖403七點到九點四個人",
+  "today": "2026-05-29",
+  "timezone": "Asia/Taipei",
+  "branchOptions": [
+    { "canonical": "總館", "aliases": ["總館", "總圖", "本館", "圖書館總館"] },
+    { "canonical": "公館分館", "aliases": ["公館分館", "公館", "公館校區", "公館圖書館"] },
+    { "canonical": "林口分館", "aliases": ["林口分館", "林口", "林口校區", "林口圖書館"] }
+  ]
+}
+```
+
+Expected Hermes response body:
+
+```json
+{
+  "parsed": {
+    "intent": "book",
+    "branch": "總館",
+    "room": "403",
+    "people": 4,
+    "date": "2026-05-30",
+    "start": "19:00",
+    "end": "21:00"
+  }
+}
+```
 
 ## 🆕 新功能：凭證管理系統
 
